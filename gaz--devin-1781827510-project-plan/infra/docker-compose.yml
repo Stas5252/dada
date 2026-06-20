@@ -1,0 +1,98 @@
+services:
+  traefik:
+    image: "traefik:v3.0"
+    container_name: "traefik"
+    command:
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      #- "--certificatesresolvers.myresolver.acme.email=admin@your-domain.com"
+      #- "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-callforce}
+      POSTGRES_USER: ${POSTGRES_USER:-callforce}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecret}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callforce} -d ${POSTGRES_DB:-callforce}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: qdrant
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../apps/api
+    container_name: api
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-callforce}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/${POSTGRES_DB:-callforce}"
+      QDRANT_URL: "http://qdrant:6333"
+      REDIS_URL: "redis://redis:6379/0"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.your-domain.com`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=myresolver"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    restart: unless-stopped
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: web
+    env_file:
+      - ../.env
+    environment:
+      NEXT_PUBLIC_API_URL: "https://api.your-domain.com"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`your-domain.com`, `www.your-domain.com`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web.tls.certresolver=myresolver"
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  qdrant-data:

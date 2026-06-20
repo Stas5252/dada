@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaz.local/schemas/voice-session.schema.json",
+  "title": "Voice Session State",
+  "type": "object",
+  "required": ["tenant_id", "session_id", "state"],
+  "properties": {
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "state": {
+      "enum": ["new", "listening", "thinking", "speaking", "waiting_confirmation", "handoff", "ended"]
+    },
+    "pending_confirmation_id": { "type": ["string", "null"] },
+    "transcript": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["speaker", "text"],
+        "properties": {
+          "speaker": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "tenant_id": "tenant-demo",
+      "session_id": "voice-session-1",
+      "state": "waiting_confirmation",
+      "pending_confirmation_id": "confirm-order-1",
+      "transcript": [
+        { "speaker": "customer", "text": "Order the margherita pizza" },
+        { "speaker": "assistant", "text": "Please confirm the order" }
+      ]
+    }
+  ]
+}

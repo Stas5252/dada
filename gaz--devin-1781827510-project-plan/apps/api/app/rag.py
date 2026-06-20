@@ -1,0 +1,233 @@
+import re
+from dataclasses import dataclass
+from functools import lru_cache
+from hashlib import sha256
+from uuid import NAMESPACE_URL, UUID, uuid5
+
+import openai
+from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.http.models import Distance, PointStruct, VectorParams
+
+from app.schemas import KnowledgeChunk, KnowledgeSource, QdrantCollectionContract
+from app.settings import get_settings
+
+DEFAULT_QDRANT_VECTOR_SIZE = 1536
+WORD_PATTERN = re.compile(r"\w+")
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+    source_id: UUID
+    title: str
+    excerpt: str
+    score: float
+
+
+def content_hash(content: str) -> str:
+    normalized = " ".join(content.split())
+    return sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def chunk_text(content: str, max_chars: int = 1500) -> list[str]:
+    # Better chunking: split by paragraphs, then sentences if too long.
+    # For MVP, just split by max_chars with small overlap.
+    normalized = " ".join(content.split())
+    if not normalized:
+        return []
+    chunks = []
+    start = 0
+    overlap = 200 if max_chars > 200 else 0
+    while start < len(normalized):
+        end = min(start + max_chars, len(normalized))
+        chunks.append(normalized[start:end])
+        start += max_chars - overlap
+    return chunks
+
+
+@lru_cache
+def _get_qdrant_client() -> QdrantClient:
+    settings = get_settings()
+    if settings.qdrant_url == ":memory:":
+        return QdrantClient(location=":memory:")
+    return QdrantClient(url=settings.qdrant_url)
+
+
+def _get_openai_client() -> openai.Client:
+    settings = get_settings()
+    return openai.Client(api_key=settings.openai_api_key)
+
+
+def generate_embeddings(
+    texts: list[str], dimensions: int = DEFAULT_QDRANT_VECTOR_SIZE
+) -> list[list[float]]:
+    settings = get_settings()
+    if not settings.openai_api_key:
+        # Fallback to local stub if no API key
+        if dimensions < 1:
+            raise ValueError("Embedding dimensions must be positive.")
+        res = []
+        for text in texts:
+            normalized = " ".join(text.split()).encode("utf-8")
+            res.append(
+                [
+                    round(
+                        int.from_bytes(
+                            sha256(normalized + index.to_bytes(2, "big")).digest()[:4], "big"
+                        )
+                        / 0xFFFFFFFF
+                        * 2
+                        - 1,
+                        6,
+                    )
+                    for index in range(dimensions)
+                ]
+            )
+        return res
+
+    client = _get_openai_client()
+    response = client.embeddings.create(
+        input=texts, model="text-embedding-3-small", dimensions=dimensions
+    )
+    return [d.embedding for d in response.data]
+
+
+def qdrant_point_id(tenant_id: UUID, source_id: UUID, chunk_index: int, chunk_hash: str) -> str:
+    return str(uuid5(NAMESPACE_URL, f"gaz-rag:{tenant_id}:{source_id}:{chunk_index}:{chunk_hash}"))
+
+
+def build_qdrant_collection_contract(
+    collection_name: str,
+    vector_size: int = DEFAULT_QDRANT_VECTOR_SIZE,
+    distance: str = "Cosine",
+) -> QdrantCollectionContract:
+    return QdrantCollectionContract(
+        collection_name=collection_name,
+        vector_size=vector_size,
+        distance=distance,
+        payload_indexes={
+            "tenant_id": "keyword",
+            "source_id": "keyword",
+            "source_type": "keyword",
+            "chunk_index": "integer",
+            "content_hash": "keyword",
+        },
+    )
+
+
+def ensure_collection_exists(client: QdrantClient, contract: QdrantCollectionContract) -> None:
+    try:
+        client.get_collection(contract.collection_name)
+    except (UnexpectedResponse, ValueError) as e:
+        if isinstance(e, ValueError) or (
+            isinstance(e, UnexpectedResponse) and e.status_code == 404
+        ):
+            dist = Distance.COSINE if contract.distance == "Cosine" else Distance.EUCLID
+            client.create_collection(
+                collection_name=contract.collection_name,
+                vectors_config=VectorParams(size=contract.vector_size, distance=dist),
+            )
+        else:
+            raise
+
+
+def build_knowledge_chunks(
+    source: KnowledgeSource,
+    vector_size: int = DEFAULT_QDRANT_VECTOR_SIZE,
+) -> list[KnowledgeChunk]:
+    chunks = chunk_text(source.content)
+    if not chunks:
+        return []
+
+    embeddings = generate_embeddings(chunks, vector_size)
+
+    return [
+        KnowledgeChunk(
+            id=qdrant_point_id(source.tenant_id, source.id, index, content_hash(chunk)),
+            tenant_id=source.tenant_id,
+            source_id=source.id,
+            chunk_index=index,
+            content=chunk,
+            content_hash=content_hash(chunk),
+            embedding=embedding,
+            qdrant_payload={
+                "tenant_id": str(source.tenant_id),
+                "source_id": str(source.id),
+                "source_type": source.source_type,
+                "title": source.title,
+                "chunk_index": str(index),
+                "content_hash": content_hash(chunk),
+                "content": chunk,  # Include content for retrieval
+            },
+        )
+        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False))
+    ]
+
+
+def upsert_chunks_to_qdrant(chunks: list[KnowledgeChunk], collection_name: str) -> None:
+    if not chunks:
+        return
+    client = _get_qdrant_client()
+    contract = build_qdrant_collection_contract(collection_name, len(chunks[0].embedding))
+    ensure_collection_exists(client, contract)
+
+    points = [
+        PointStruct(id=chunk.id, vector=chunk.embedding, payload=chunk.qdrant_payload)
+        for chunk in chunks
+    ]
+    client.upsert(collection_name=collection_name, points=points)
+
+
+def ingestion_idempotency_key(source: KnowledgeSource) -> str:
+    return f"rag-ingestion:{source.tenant_id}:{source.id}:{content_hash(source.content)}"
+
+
+def retrieve_sources(
+    tenant_id: UUID,
+    query: str,
+    collection_name: str,
+    vector_size: int = DEFAULT_QDRANT_VECTOR_SIZE,
+    limit: int = 3,
+) -> list[RetrievalResult]:
+    if not query.strip():
+        return []
+
+    query_vector = generate_embeddings([query], vector_size)[0]
+    client = _get_qdrant_client()
+
+    from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+
+    try:
+        search_result = client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            query_filter=Filter(
+                must=[FieldCondition(key="tenant_id", match=MatchValue(value=str(tenant_id)))]
+            ),
+            limit=limit,
+        )
+    except (Exception, ValueError) as e:
+        print(f"Qdrant search error: {e}")
+        return []
+
+    ranked_results: list[RetrievalResult] = []
+    for point in search_result.points:
+        payload = point.payload or {}
+        ranked_results.append(
+            RetrievalResult(
+                source_id=UUID(payload.get("source_id", "00000000-0000-0000-0000-000000000000")),
+                title=payload.get("title", "Unknown Source"),
+                excerpt=payload.get("content", "")[:300],
+                score=point.score,
+            )
+        )
+    return ranked_results
+
+
+def compose_grounded_answer(query: str, result: RetrievalResult | None) -> str:
+    if not result:
+        return (
+            "Не нашел надежного источника для ответа. Передаю вопрос оператору "
+            "или могу принять контакт для обратного звонка."
+        )
+    return f"По базе знаний: {result.excerpt}. Источник: {result.title}. Ваш вопрос: {query}"

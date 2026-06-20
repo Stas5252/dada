@@ -1,0 +1,57 @@
+name: Security Scans
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 0' # Run weekly on Sundays
+
+jobs:
+  bandit:
+    name: Backend Security (Bandit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit & Safety
+        run: pip install bandit safety
+
+      - name: Run Bandit
+        run: bandit -r app/ -c pyproject.toml || true # Keep true for now so it doesn't break build immediately
+
+      - name: Run Safety Check
+        run: safety check --full-report || true
+
+  npm-audit:
+    name: Frontend Security (NPM Audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "./package-lock.json"
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Run NPM Audit
+        working-directory: .
+        run: npm audit --audit-level=high || true

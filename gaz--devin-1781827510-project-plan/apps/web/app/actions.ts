@@ -1,0 +1,508 @@
+"use server";
+
+import { randomUUID } from "crypto";
+import { redirect } from "next/navigation";
+import type { CoreTokenPairResponse } from "../lib/auth";
+import {
+  mutateCoreApi,
+  mutateCoreApiNoContent,
+  patchCoreApi,
+  revokeRefreshToken,
+  uploadCoreApi,
+  getCoreTenantId,
+  type CoreAgent,
+  type CoreChatMessageResponse,
+  type CoreKnowledgeIngestionJob,
+  type CoreKnowledgeSource,
+  type CoreMfaRecoveryCodesResponse,
+  type CoreMfaSetupResponse,
+  type CoreVoicePreviewTurnResponse,
+} from "../lib/core-api";
+
+function textValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function noticePath(path: string, notice: string) {
+  const params = new URLSearchParams({ notice });
+
+  return `${path}?${params.toString()}`;
+}
+
+function safeAgentReturnPath(path: string) {
+  return path.startsWith("/agents") ? path : "/agents";
+}
+
+function isMfaCode(value: string) {
+  const recoveryCode = value.replace(/[\s-]/g, "");
+
+  return /^\d{6}$/.test(value) || /^[A-Z0-9]{8}$/i.test(recoveryCode);
+}
+
+export async function createAgentAction(formData: FormData) {
+  const name = textValue(formData, "name");
+  const channel = textValue(formData, "channel") || "telegram";
+  const prompt = textValue(formData, "prompt");
+  const voice_id = textValue(formData, "voice_id") || "alloy";
+  const voice_language = textValue(formData, "voice_language") || "ru";
+  const voice_speed = parseFloat(textValue(formData, "voice_speed") || "1.0");
+  const temperature = parseFloat(textValue(formData, "temperature") || "0.3");
+  const max_tokens = parseInt(textValue(formData, "max_tokens") || "1024", 10);
+  const model_name = textValue(formData, "model_name") || "gpt-4o-mini";
+
+  if (!name || prompt.length < 10) {
+    redirect(noticePath("/agents/new", "agent-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreAgent>("/api/v1/agents", {
+    channel,
+    name,
+    prompt,
+    voice_id,
+    voice_language,
+    voice_speed,
+    temperature,
+    max_tokens,
+    model_name,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath("/agents", "agent-created"));
+  }
+
+  redirect(noticePath("/agents/new", "agent-error"));
+}
+
+export async function updateAgentAction(formData: FormData) {
+  const agentId = textValue(formData, "agent_id");
+  const name = textValue(formData, "name");
+  const channel = textValue(formData, "channel") || "telegram";
+  const prompt = textValue(formData, "prompt");
+  const voice_id = textValue(formData, "voice_id") || "alloy";
+  const voice_language = textValue(formData, "voice_language") || "ru";
+  const voice_speed = parseFloat(textValue(formData, "voice_speed") || "1.0");
+  const temperature = parseFloat(textValue(formData, "temperature") || "0.3");
+  const max_tokens = parseInt(textValue(formData, "max_tokens") || "1024", 10);
+  const model_name = textValue(formData, "model_name") || "gpt-4o-mini";
+  const returnTo = safeAgentReturnPath(textValue(formData, "return_to") || `/agents/${agentId}`);
+
+  if (!agentId || !name || prompt.length < 10) {
+    redirect(noticePath(returnTo, "agent-invalid"));
+  }
+
+  const result = await patchCoreApi<CoreAgent>(`/api/v1/agents/${agentId}`, {
+    channel,
+    name,
+    prompt,
+    voice_id,
+    voice_language,
+    voice_speed,
+    temperature,
+    max_tokens,
+    model_name,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath(`/agents/${result.data.id}`, "agent-updated"));
+  }
+
+  redirect(noticePath(returnTo, "agent-update-error"));
+}
+
+export async function publishAgentAction(formData: FormData) {
+  const agentId = textValue(formData, "agent_id");
+  const returnTo = safeAgentReturnPath(textValue(formData, "return_to") || "/agents");
+
+  if (!agentId) {
+    redirect(noticePath(returnTo, "agent-publish-error"));
+  }
+
+  const result = await mutateCoreApi<CoreAgent>(`/api/v1/agents/${agentId}/publish`, {});
+
+  if (result.state === "live") {
+    redirect(noticePath(returnTo, "agent-published"));
+  }
+
+  redirect(noticePath(returnTo, "agent-publish-error"));
+}
+
+export async function createKnowledgeSourceAction(formData: FormData) {
+  const sourceType = textValue(formData, "source_type") || "manual";
+
+  if (sourceType === "file") {
+    const file = formData.get("file") as File;
+    if (!file || file.size === 0) {
+      redirect(noticePath("/knowledge", "knowledge-invalid-file"));
+    }
+
+    const uploadForm = new FormData();
+    uploadForm.append("file", file);
+
+    const result = await uploadCoreApi<CoreKnowledgeSource>("/api/v1/knowledge/upload", uploadForm);
+
+    if (result.state === "live") {
+      redirect(noticePath("/knowledge", "knowledge-created"));
+    }
+
+    redirect(noticePath("/knowledge", "knowledge-error"));
+  }
+
+  const title = textValue(formData, "title");
+  const content = textValue(formData, "content");
+
+  if (!title || content.length < 2) {
+    redirect(noticePath("/knowledge", "knowledge-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreKnowledgeSource>("/api/v1/knowledge/sources", {
+    content,
+    source_type: sourceType,
+    title,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath("/knowledge", "knowledge-created"));
+  }
+
+  redirect(noticePath("/knowledge", "knowledge-error"));
+}
+
+export async function reingestKnowledgeSourceAction(formData: FormData) {
+  const sourceId = textValue(formData, "source_id");
+
+  if (!sourceId) {
+    redirect(noticePath("/knowledge", "knowledge-reingest-error"));
+  }
+
+  const result = await mutateCoreApi<CoreKnowledgeIngestionJob>(
+    `/api/v1/knowledge/sources/${sourceId}/ingest`,
+    {},
+  );
+
+  if (result.state === "live") {
+    redirect(noticePath("/knowledge", "knowledge-reingested"));
+  }
+
+  redirect(noticePath("/knowledge", "knowledge-reingest-error"));
+}
+
+export async function createMockChatAction(formData: FormData) {
+  const agentId = textValue(formData, "agent_id");
+  const channel = textValue(formData, "channel") || "web_widget";
+  const message = textValue(formData, "message");
+
+  if (!agentId || !message) {
+    redirect(noticePath("/test-console", "chat-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreChatMessageResponse>("/api/v1/chat/mock", {
+    agent_id: agentId,
+    channel,
+    message,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath(`/conversations/${result.data.conversation.id}`, "chat-created"));
+  }
+
+  redirect(noticePath("/test-console", "chat-error"));
+}
+
+export async function createVoicePreviewAction(formData: FormData) {
+  const agentId = textValue(formData, "agent_id");
+  const message = textValue(formData, "message");
+  const sessionId = textValue(formData, "session_id") || `voice-preview-${randomUUID()}`;
+
+  if (!agentId || !message) {
+    redirect(noticePath("/test-console", "voice-preview-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreVoicePreviewTurnResponse>(
+    `/api/v1/voice/sessions/${encodeURIComponent(sessionId)}/preview-turn`,
+    {
+      agent_id: agentId,
+      text: message,
+    },
+  );
+
+  if (result.state === "live") {
+    redirect(noticePath(`/conversations/${result.data.conversation_id}`, "voice-preview-created"));
+  }
+
+  redirect(noticePath("/test-console", "voice-preview-error"));
+}
+
+export async function loginAction(formData: FormData) {
+  const email = textValue(formData, "email");
+  const password = textValue(formData, "password");
+
+  if (!email || !password) {
+    redirect(noticePath("/login", "auth-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreTokenPairResponse>("/api/v1/auth/login", { email, password });
+
+  if (result.state === "live" && result.data.access_token) {
+    if (result.data.requires_mfa) {
+      const { setMfaToken } = await import("../lib/auth");
+      await setMfaToken(result.data.access_token, result.data.access_expires_at);
+      redirect("/login/mfa");
+    } else {
+      const { setAuthCookies } = await import("../lib/auth");
+      await setAuthCookies(result.data);
+      redirect("/dashboard");
+    }
+  }
+
+  redirect(noticePath("/login", "auth-error"));
+}
+
+export async function loginMfaAction(formData: FormData) {
+  const code = textValue(formData, "code");
+  if (!isMfaCode(code)) {
+    redirect(noticePath("/login/mfa", "mfa-invalid"));
+  }
+
+  const { getMfaToken, clearMfaToken, setAuthCookies } = await import("../lib/auth");
+  const token = await getMfaToken();
+
+  if (!token) {
+    redirect("/login");
+  }
+
+  const result = await mutateCoreApi<CoreTokenPairResponse>("/api/v1/auth/login/mfa", { token, code });
+
+  if (result.state === "live" && result.data.access_token) {
+    await clearMfaToken();
+    await setAuthCookies(result.data);
+    redirect("/dashboard");
+  }
+
+  redirect(noticePath("/login/mfa", "mfa-error"));
+}
+
+export async function registerAction(formData: FormData) {
+  const companyName = textValue(formData, "company_name");
+  const ownerEmail = textValue(formData, "owner_email");
+  const ownerName = textValue(formData, "owner_name");
+  const password = textValue(formData, "password");
+
+  if (!companyName || !ownerEmail || !ownerName || password.length < 8) {
+    redirect(noticePath("/register", "auth-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreTokenPairResponse>("/api/v1/auth/register", {
+    company_name: companyName,
+    owner_email: ownerEmail,
+    owner_name: ownerName,
+    password,
+  });
+
+  if (result.state === "live" && result.data.access_token) {
+    const { setAuthCookies } = await import("../lib/auth");
+    await setAuthCookies(result.data);
+    redirect("/dashboard");
+  }
+
+  redirect(noticePath("/register", "auth-error"));
+}
+
+export async function requestPasswordResetAction(formData: FormData) {
+  const email = textValue(formData, "email");
+
+  if (!email) {
+    redirect(noticePath("/forgot-password", "reset-invalid"));
+  }
+
+  const result = await mutateCoreApiNoContent("/api/v1/auth/request-password-reset", { email });
+
+  if (result.state === "live") {
+    redirect(noticePath("/forgot-password", "reset-sent"));
+  }
+
+  redirect(noticePath("/forgot-password", "reset-error"));
+}
+
+export async function resetPasswordAction(formData: FormData) {
+  const token = textValue(formData, "token");
+  const newPassword = textValue(formData, "new_password");
+  const confirmPassword = textValue(formData, "confirm_password");
+
+  if (!token || newPassword.length < 8 || newPassword !== confirmPassword) {
+    const path = token
+      ? `/reset-password?${new URLSearchParams({ token, notice: "reset-invalid" }).toString()}`
+      : noticePath("/reset-password", "reset-invalid");
+
+    redirect(path);
+  }
+
+  const result = await mutateCoreApiNoContent("/api/v1/auth/reset-password", {
+    token,
+    new_password: newPassword,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath("/login", "password-reset"));
+  }
+
+  redirect(`/reset-password?${new URLSearchParams({ token, notice: "reset-error" }).toString()}`);
+}
+
+export async function startMfaSetupAction() {
+  const result = await mutateCoreApi<CoreMfaSetupResponse>("/api/v1/auth/mfa/setup", {});
+
+  if (result.state === "live") {
+    const { setMfaSetup } = await import("../lib/auth");
+    await setMfaSetup(result.data);
+    redirect(noticePath("/settings/security", "mfa-started"));
+  }
+
+  redirect(noticePath("/settings/security", "mfa-start-error"));
+}
+
+export async function verifyMfaSetupAction(formData: FormData) {
+  const code = textValue(formData, "code");
+
+  if (!/^\d{6}$/.test(code)) {
+    redirect(noticePath("/settings/security", "mfa-code-invalid"));
+  }
+
+  const { clearMfaSetup, getMfaSetup } = await import("../lib/auth");
+  const setup = await getMfaSetup();
+
+  if (!setup) {
+    redirect(noticePath("/settings/security", "mfa-setup-missing"));
+  }
+
+  const result = await mutateCoreApi<CoreMfaRecoveryCodesResponse>("/api/v1/auth/mfa/verify", {
+    code,
+    secret: setup.secret,
+  });
+
+  if (result.state === "live") {
+    const { setMfaRecoveryCodes } = await import("../lib/auth");
+    await setMfaRecoveryCodes(result.data.codes);
+    await clearMfaSetup();
+    redirect(noticePath("/settings/security", "mfa-enabled"));
+  }
+
+  redirect(noticePath("/settings/security", "mfa-code-error"));
+}
+
+export async function regenerateMfaRecoveryCodesAction(formData: FormData) {
+  const code = textValue(formData, "code");
+
+  if (!isMfaCode(code)) {
+    redirect(noticePath("/settings/security", "mfa-code-invalid"));
+  }
+
+  const result = await mutateCoreApi<CoreMfaRecoveryCodesResponse>(
+    "/api/v1/auth/mfa/recovery-codes",
+    { code },
+  );
+
+  if (result.state === "live") {
+    const { setMfaRecoveryCodes } = await import("../lib/auth");
+    await setMfaRecoveryCodes(result.data.codes);
+    redirect(noticePath("/settings/security", "mfa-recovery-regenerated"));
+  }
+
+  redirect(noticePath("/settings/security", "mfa-recovery-error"));
+}
+
+export async function disableMfaAction(formData: FormData) {
+  const code = textValue(formData, "code");
+
+  if (!isMfaCode(code)) {
+    redirect(noticePath("/settings/security", "mfa-code-invalid"));
+  }
+
+  const result = await mutateCoreApiNoContent("/api/v1/auth/mfa/disable", { code });
+
+  if (result.state === "live") {
+    const { clearMfaRecoveryCodes } = await import("../lib/auth");
+    await clearMfaRecoveryCodes();
+    redirect(noticePath("/settings/security", "mfa-disabled"));
+  }
+
+  redirect(noticePath("/settings/security", "mfa-disable-error"));
+}
+
+export async function clearMfaRecoveryCodesAction() {
+  const { clearMfaRecoveryCodes } = await import("../lib/auth");
+  await clearMfaRecoveryCodes();
+  redirect("/settings/security");
+}
+
+export async function cancelMfaSetupAction() {
+  const { clearMfaSetup } = await import("../lib/auth");
+  await clearMfaSetup();
+  redirect(noticePath("/settings/security", "mfa-cancelled"));
+}
+
+export async function logoutAction() {
+  const { clearAuthCookies, getRefreshToken } = await import("../lib/auth");
+  const refreshToken = await getRefreshToken();
+
+  if (refreshToken) {
+    await revokeRefreshToken(refreshToken);
+  }
+
+  await clearAuthCookies();
+  redirect("/");
+}
+
+export async function updateTenantSettingsAction(formData: FormData) {
+  const tenantId = await getCoreTenantId();
+  if (!tenantId) {
+    redirect(noticePath("/dashboard", "auth-error"));
+  }
+
+  const telegram_bot_token = textValue(formData, "telegram_bot_token");
+  const twilio_account_sid = textValue(formData, "twilio_account_sid");
+  const twilio_auth_token = textValue(formData, "twilio_auth_token");
+  const twilio_phone_number = textValue(formData, "twilio_phone_number");
+  const yookassa_shop_id = textValue(formData, "yookassa_shop_id");
+  const yookassa_secret_key = textValue(formData, "yookassa_secret_key");
+
+  const settings = {
+    telegram_bot_token,
+    twilio_account_sid,
+    twilio_auth_token,
+    twilio_phone_number,
+    yookassa_shop_id,
+    yookassa_secret_key,
+  };
+
+  const result = await mutateCoreApi<Record<string, object>>(`/api/v1/tenants/${tenantId}/settings`, {
+    settings,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath("/settings/channels", "settings-updated"));
+  }
+
+  redirect(noticePath("/settings/channels", "settings-error"));
+}
+
+export async function triggerOutboundCallAction(formData: FormData) {
+  const agentId = textValue(formData, "agent_id");
+  const toNumber = textValue(formData, "to_number");
+
+  if (!agentId || !toNumber) {
+    redirect(noticePath("/dashboard", "call-invalid"));
+  }
+
+  const result = await mutateCoreApi<{ call_sid: string; status: string }>("/api/v1/voice/calls/outbound", {
+    agent_id: agentId,
+    to_number: toNumber,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath("/dashboard", "call-initiated"));
+  }
+
+  redirect(noticePath("/dashboard", "call-error"));
+}

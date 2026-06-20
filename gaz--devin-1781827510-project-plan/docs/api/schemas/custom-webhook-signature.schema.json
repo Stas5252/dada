@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaz.local/schemas/custom-webhook-signature.schema.json",
+  "title": "Custom Webhook Signature",
+  "type": "object",
+  "required": ["key_id", "timestamp", "nonce", "signature", "algorithm"],
+  "properties": {
+    "key_id": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "integer" },
+    "nonce": { "type": "string", "minLength": 1 },
+    "signature": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "algorithm": { "const": "HMAC-SHA256" }
+  },
+  "examples": [
+    {
+      "key_id": "tenant-demo-key-1",
+      "timestamp": 1781827510,
+      "nonce": "demo-nonce",
+      "signature": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "algorithm": "HMAC-SHA256"
+    }
+  ]
+}

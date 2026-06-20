@@ -1,0 +1,106 @@
+import sentry_sdk
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.api.v1.agents import router as agents_router
+from app.api.v1.auth import router as auth_router
+from app.api.v1.billing import router as billing_router
+from app.api.v1.conversations import router as conversations_router
+from app.api.v1.health import router as health_router
+from app.api.v1.integrations import router as integrations_router
+from app.api.v1.knowledge import router as knowledge_router
+from app.api.v1.tenants import router as tenants_router
+from app.api.v1.voice import router as voice_router
+from app.settings import get_settings
+from app.tenant import TenantContextMiddleware
+
+
+def _rate_limit_exceeded_handler(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "error_code": "RATE_LIMIT_EXCEEDED",
+            "message": "Too many requests, please try again later.",
+        },
+    )
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+
+    # Security: block startup if default secret is used in production
+    if (
+        settings.app_env not in ("local", "test", "development")
+        and settings.access_token_secret == "local-development-token-secret"
+    ):
+        raise RuntimeError(
+            "CRITICAL: ACCESS_TOKEN_SECRET is set to the insecure default. "
+            "Set a strong, unique secret before deploying to production."
+        )
+    elif settings.access_token_secret == "local-development-token-secret":
+        import logging
+        logging.getLogger(__name__).warning(
+            "⚠️  ACCESS_TOKEN_SECRET is using the default insecure value. "
+            "This is OK for local development, but MUST be changed for production."
+        )
+
+    if settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            environment=settings.app_env,
+        )
+
+    app = FastAPI(
+        title="CallForce API",
+        version=settings.api_version,
+        docs_url="/docs",
+        redoc_url="/redoc",
+    )
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+
+    from app.limiter import limiter
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+    app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(tenants_router, prefix="/api/v1")
+    app.include_router(agents_router, prefix="/api/v1")
+    app.include_router(knowledge_router, prefix="/api/v1")
+    app.include_router(conversations_router, prefix="/api/v1")
+    app.include_router(integrations_router, prefix="/api/v1")
+    app.include_router(voice_router, prefix="/api/v1")
+    from app.api.v1.telegram import router as telegram_router
+
+    app.include_router(telegram_router, prefix="/api/v1")
+    app.include_router(billing_router, prefix="/api/v1")
+    from app.api.v1.team import router as team_router
+
+    app.include_router(team_router, prefix="/api/v1")
+    from app.api.v1.analytics import router as analytics_router
+
+    app.include_router(analytics_router, prefix="/api/v1")
+    from app.api.v1.api_keys import router as api_keys_router
+
+    app.include_router(api_keys_router, prefix="/api/v1")
+    from app.api.v1.widget import router as widget_router
+
+    app.include_router(widget_router, prefix="/api/v1")
+    app.add_middleware(TenantContextMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router, prefix="/api/v1")
+    return app
+
+
+app = create_app()

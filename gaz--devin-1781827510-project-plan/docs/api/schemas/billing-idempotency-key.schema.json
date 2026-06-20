@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaz.local/schemas/billing-idempotency-key.schema.json",
+  "title": "Billing Idempotency Key",
+  "type": "object",
+  "required": ["tenant_id", "operation", "subject_id", "request_hash"],
+  "properties": {
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "operation": { "enum": ["create_invoice", "record_payment", "apply_usage"] },
+    "subject_id": { "type": "string", "minLength": 1 },
+    "request_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "examples": [
+    {
+      "tenant_id": "tenant-demo",
+      "operation": "create_invoice",
+      "subject_id": "invoice-1001",
+      "request_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ]
+}

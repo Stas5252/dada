@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaz.local/schemas/action-tool-contract.schema.json",
+  "title": "Action Engine Tool Contract",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "input_schema",
+    "output_schema",
+    "permissions",
+    "timeout_ms",
+    "destructive",
+    "requires_confirmation",
+    "idempotency",
+    "retry_policy",
+    "audit_enabled"
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "input_schema": { "type": "object" },
+    "output_schema": { "type": "object" },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "enum": ["read:menu", "create:order", "cancel:order", "send:webhook", "manage:billing"]
+      },
+      "uniqueItems": true
+    },
+    "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 30000 },
+    "destructive": { "type": "boolean" },
+    "requires_confirmation": { "type": "boolean" },
+    "idempotency": {
+      "type": "object",
+      "required": ["required", "scope", "key_fields"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "scope": { "enum": ["tenant", "tenant_tool", "tenant_tool_subject"] },
+        "key_fields": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "retry_policy": {
+      "type": "object",
+      "required": ["max_attempts", "backoff_ms", "only_when_idempotent"],
+      "properties": {
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "backoff_ms": { "type": "integer", "minimum": 0, "maximum": 60000 },
+        "only_when_idempotent": { "type": "boolean" }
+      }
+    },
+    "audit_enabled": { "type": "boolean" }
+  },
+  "examples": [
+    {
+      "name": "iiko.create_order",
+      "version": "2026-06-19",
+      "input_schema": {
+        "type": "object",
+        "required": ["tenant_id", "lines", "customer_phone", "delivery_address"],
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "lines": { "type": "array" },
+          "customer_phone": { "type": "string" },
+          "delivery_address": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["tenant_id", "external_order_id", "status"],
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "external_order_id": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      },
+      "permissions": ["create:order"],
+      "timeout_ms": 5000,
+      "destructive": true,
+      "requires_confirmation": true,
+      "idempotency": {
+        "required": true,
+        "scope": "tenant_tool_subject",
+        "key_fields": ["tenant_id", "tool_name", "subject_id"]
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "backoff_ms": 250,
+        "only_when_idempotent": true
+      },
+      "audit_enabled": true
+    }
+  ]
+}

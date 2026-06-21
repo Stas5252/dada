@@ -112,6 +112,7 @@ class Agent(TimestampedModel):
     temperature: float = 0.3
     max_tokens: int = 1024
     model_name: str = "gpt-4o-mini"
+    telegram_bot_token: str | None = None
 
 
 class KnowledgeSource(TimestampedModel):
@@ -165,10 +166,67 @@ class Message(TimestampedModel):
     source_ids: list[UUID] = Field(default_factory=list)
 
 
+class Customer(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    external_id: str
+    channel: str
+    name: str | None = None
+    phone: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class CustomerCreate(BaseModel):
+    external_id: str
+    channel: str
+    name: str | None = None
+    phone: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class CustomerUpdate(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    tags: list[str] | None = None
+
+
+class ConversationCreateRequest(BaseModel):
+    customer_id: UUID | None = None
+    initial_message: str | None = None
+
+
+class OrderItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    order_id: UUID
+    product_name: str
+    product_external_id: str | None = None
+    quantity: int
+    price_per_unit: int
+    created_at: datetime
+
+
+class OrderDraft(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    conversation_id: UUID
+    customer_phone: str | None = None
+    delivery_address: str | None = None
+    status: str
+    total_amount: int
+    created_at: datetime
+    updated_at: datetime
+    items: list[OrderItem] = Field(default_factory=list)
+
+
 class Conversation(TimestampedModel):
     id: UUID = Field(default_factory=uuid4)
     tenant_id: UUID
     agent_id: UUID
+    customer_id: UUID | None = None
     channel: str
     status: ConversationStatus = ConversationStatus.open
     summary: str = ""
@@ -293,12 +351,17 @@ class AgentUpdateRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     model_name: str | None = None
+    telegram_bot_token: str | None = None
 
 
 class KnowledgeSourceCreateRequest(BaseModel):
     title: str = Field(min_length=2, max_length=160)
     source_type: str = "manual"
     content: str = Field(min_length=2, max_length=20000)
+
+
+class TelegramConnectRequest(BaseModel):
+    bot_token: str = Field(min_length=10, description="Telegram bot token")
 
 
 class ChatMessageRequest(BaseModel):
@@ -328,6 +391,7 @@ class DashboardResponse(BaseModel):
     knowledge_sources_total: int
     conversations_total: int
     automation_rate: float
+    unresolved_topics_total: int
 
 
 class ApiKey(TimestampedModel):

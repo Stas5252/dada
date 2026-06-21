@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from hmac import compare_digest
@@ -13,11 +14,14 @@ from app.db_models import (
     AuditLogModel,
     AuthSessionModel,
     ConversationModel,
+    CustomerModel,
     KnowledgeChunkModel,
     KnowledgeIngestionJobModel,
     KnowledgeSourceModel,
     MembershipModel,
     MessageModel,
+    OrderDraftModel,
+    OrderItemModel,
     PasswordResetTokenModel,
     TenantModel,
     UserModel,
@@ -52,10 +56,14 @@ from app.schemas import (
     ChatMessageResponse,
     Conversation,
     ConversationStatus,
+    Customer,
     KnowledgeIngestionJob,
     KnowledgeIngestionJobStatus,
     KnowledgeSource,
     KnowledgeSourceCreateRequest,
+    OrderDraft,
+    OrderItem,
+    PasswordResetToken,
     KnowledgeSourceStatus,
     Message,
     MessageRole,
@@ -235,6 +243,15 @@ class SqlAlchemyStore:
             if not tenant_model:
                 return None
             tenant_model.settings = dict(settings)
+            session.flush()
+            return self._tenant_from_model(tenant_model)
+
+    def update_tenant_plan(self, tenant_id: UUID, plan: str) -> Tenant | None:
+        with self._session_scope() as session:
+            tenant_model = session.get(TenantModel, str(tenant_id))
+            if not tenant_model:
+                return None
+            tenant_model.plan = plan
             session.flush()
             return self._tenant_from_model(tenant_model)
 
@@ -475,6 +492,12 @@ class SqlAlchemyStore:
             if payload.model_name is not None and payload.model_name != agent_model.model_name:
                 agent_model.model_name = payload.model_name
                 changed = True
+            if (
+                payload.telegram_bot_token is not None 
+                and payload.telegram_bot_token != getattr(agent_model, "telegram_bot_token", None)
+            ):
+                agent_model.telegram_bot_token = payload.telegram_bot_token
+                changed = True
 
             if changed:
                 agent_model.version += 1
@@ -635,6 +658,70 @@ class SqlAlchemyStore:
             job_model.status = KnowledgeIngestionJobStatus.completed
             job_model.chunk_count = len(chunks)
 
+    def get_customer(self, tenant_id: UUID, customer_id: UUID) -> Customer | None:
+        with self.session_factory() as session:
+            customer_model = session.get(CustomerModel, str(customer_id))
+            if customer_model is None or customer_model.tenant_id != str(tenant_id):
+                return None
+            return self._customer_from_model(customer_model)
+
+    def get_customer_by_external_id(
+        self, tenant_id: UUID, channel: str, external_id: str
+    ) -> Customer | None:
+        with self.session_factory() as session:
+            model = session.scalar(
+                select(CustomerModel).where(
+                    CustomerModel.tenant_id == str(tenant_id),
+                    CustomerModel.channel == channel,
+                    CustomerModel.external_id == external_id,
+                )
+            )
+            return self._customer_from_model(model) if model else None
+
+    def create_customer(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        external_id: str,
+        name: str | None = None,
+        phone: str | None = None,
+    ) -> Customer:
+        with self._session_scope() as session:
+            model = CustomerModel(
+                id=str(uuid4()),
+                tenant_id=str(tenant_id),
+                external_id=external_id,
+                channel=channel,
+                name=name,
+                phone=phone,
+                tags=[],
+            )
+            session.add(model)
+            session.flush()
+            return self._customer_from_model(model)
+
+    def update_customer(
+        self,
+        tenant_id: UUID,
+        customer_id: UUID,
+        name: str | None = None,
+        phone: str | None = None,
+        tags: list[str] | None = None,
+    ) -> Customer | None:
+        with self._session_scope() as session:
+            model = session.get(CustomerModel, str(customer_id))
+            if model is None or model.tenant_id != str(tenant_id):
+                return None
+            if name is not None:
+                model.name = name
+            if phone is not None:
+                model.phone = phone
+            if tags is not None:
+                model.tags = list(tags)
+            model.updated_at = datetime.now(UTC)
+            session.flush()
+            return self._customer_from_model(model)
+
     def list_conversations(
         self,
         tenant_id: UUID,
@@ -655,9 +742,14 @@ class SqlAlchemyStore:
 
     def count_messages(self, tenant_id: UUID) -> int:
         with self.session_factory() as session:
-            return session.scalar(
-                select(func.count(MessageModel.id)).where(MessageModel.tenant_id == str(tenant_id))
-            ) or 0
+            return (
+                session.scalar(
+                    select(func.count(MessageModel.id)).where(
+                        MessageModel.tenant_id == str(tenant_id)
+                    )
+                )
+                or 0
+            )
 
     def add_chat_message(
         self,
@@ -731,6 +823,7 @@ class SqlAlchemyStore:
         tenant_id: UUID,
         payload: ChatMessageRequest,
         agent_response_text: str | None = None,
+        confidence_score: float | None = None,
     ) -> tuple[Conversation, Message, Message, list[KnowledgeSource]] | None:
         return self.record_chat_turn(
             tenant_id=tenant_id,
@@ -739,6 +832,8 @@ class SqlAlchemyStore:
             channel=payload.channel,
             customer_text=payload.message,
             agent_response_text=agent_response_text,
+            customer_id=None,
+            confidence_score=confidence_score,
         )
 
     def record_chat_turn(
@@ -749,6 +844,8 @@ class SqlAlchemyStore:
         channel: str,
         customer_text: str,
         agent_response_text: str | None = None,
+        customer_id: UUID | None = None,
+        confidence_score: float | None = None,
     ) -> tuple[Conversation, Message, Message, list[KnowledgeSource]] | None:
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None:
@@ -788,7 +885,7 @@ class SqlAlchemyStore:
             content=agent_response_text
             if agent_response_text
             else compose_grounded_answer(payload.message, selected_result),
-            confidence=0.86 if selected_source else 0.2,
+            confidence=confidence_score if confidence_score is not None else (0.86 if selected_source else 0.2),
             source_ids=source_ids,
         )
 
@@ -801,17 +898,19 @@ class SqlAlchemyStore:
                     return None
                 conversation_model.channel = channel
                 conversation_model.status = status_value
+                conversation_model.summary = conversation_model.summary or customer_text[:120]
                 conversation_model.resolution_status = resolution_status
-                if not conversation_model.summary:
-                    conversation_model.summary = payload.message[:160]
+                if customer_id is not None:
+                    conversation_model.customer_id = str(customer_id)
             else:
                 conversation_model = ConversationModel(
                     id=str(conversation_id),
                     tenant_id=str(tenant_id),
                     agent_id=str(agent_id),
+                    customer_id=str(customer_id) if customer_id else None,
                     channel=channel,
                     status=status_value,
-                    summary=payload.message[:160],
+                    summary=customer_text[:120],
                     resolution_status=resolution_status,
                 )
                 session.add(conversation_model)
@@ -859,6 +958,38 @@ class SqlAlchemyStore:
                 ).all()
             ]
             return self._conversation_from_model(conversation_model), messages, sources
+
+    def add_operator_message(
+        self, tenant_id: UUID, conversation_id: UUID, content: str
+    ) -> Message | None:
+        with self._session_scope() as session:
+            conversation_model = session.get(ConversationModel, str(conversation_id))
+            if conversation_model is None or conversation_model.tenant_id != str(tenant_id):
+                return None
+
+            message = Message(
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                role=MessageRole.operator,
+                content=content,
+                source_ids=[],
+            )
+            session.add(self._message_to_model(message))
+            
+            return message
+
+    def resolve_conversation(
+        self, tenant_id: UUID, conversation_id: UUID
+    ) -> Conversation | None:
+        with self._session_scope() as session:
+            conversation_model = session.get(ConversationModel, str(conversation_id))
+            if conversation_model is None or conversation_model.tenant_id != str(tenant_id):
+                return None
+
+            conversation_model.status = ConversationStatus.resolved
+            conversation_model.resolution_status = "Resolved by operator"
+            
+            return self._conversation_from_model(conversation_model)
 
     def dashboard(self, tenant_id: UUID) -> tuple[Tenant, int, int, int, int, float] | None:
         tenant = self.get_tenant(tenant_id)
@@ -1096,6 +1227,145 @@ class SqlAlchemyStore:
             raise RuntimeError("demo tenant was not persisted")
         return seeded_tenant
 
+    def get_order_draft(self, tenant_id: UUID, conversation_id: UUID) -> OrderDraft | None:
+        with self._session_scope() as session:
+            draft_model = session.scalar(
+                select(OrderDraftModel).where(
+                    OrderDraftModel.tenant_id == str(tenant_id),
+                    OrderDraftModel.conversation_id == str(conversation_id)
+                )
+            )
+            if not draft_model:
+                return None
+            items_models = session.scalars(
+                select(OrderItemModel).where(OrderItemModel.order_id == draft_model.id)
+            ).all()
+            return self._order_draft_from_model(draft_model, items_models)
+
+    def add_order_item(
+        self, tenant_id: UUID, conversation_id: UUID, product_name: str, quantity: int, price_per_unit: int, product_external_id: str | None = None
+    ) -> OrderDraft:
+        with self._session_scope() as session:
+            draft_model = session.scalar(
+                select(OrderDraftModel).where(
+                    OrderDraftModel.tenant_id == str(tenant_id),
+                    OrderDraftModel.conversation_id == str(conversation_id)
+                )
+            )
+            if not draft_model:
+                draft_model = OrderDraftModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    conversation_id=str(conversation_id),
+                    status="draft",
+                    total_amount=0,
+                )
+                session.add(draft_model)
+                session.flush()
+
+            existing_item = session.scalar(
+                select(OrderItemModel).where(
+                    OrderItemModel.order_id == draft_model.id,
+                    OrderItemModel.product_name == product_name
+                )
+            )
+            if existing_item:
+                existing_item.quantity += quantity
+            else:
+                new_item = OrderItemModel(
+                    id=str(uuid4()),
+                    order_id=draft_model.id,
+                    product_name=product_name,
+                    product_external_id=product_external_id,
+                    quantity=quantity,
+                    price_per_unit=price_per_unit,
+                )
+                session.add(new_item)
+            
+            session.flush()
+            
+            # Recalculate total
+            all_items = session.scalars(
+                select(OrderItemModel).where(OrderItemModel.order_id == draft_model.id)
+            ).all()
+            draft_model.total_amount = sum(i.quantity * i.price_per_unit for i in all_items)
+            session.flush()
+            
+            return self._order_draft_from_model(draft_model, all_items)
+
+    def remove_order_item(
+        self, tenant_id: UUID, conversation_id: UUID, product_name: str
+    ) -> OrderDraft | None:
+        with self._session_scope() as session:
+            draft_model = session.scalar(
+                select(OrderDraftModel).where(
+                    OrderDraftModel.tenant_id == str(tenant_id),
+                    OrderDraftModel.conversation_id == str(conversation_id)
+                )
+            )
+            if not draft_model:
+                return None
+
+            item_model = session.scalar(
+                select(OrderItemModel).where(
+                    OrderItemModel.order_id == draft_model.id,
+                    OrderItemModel.product_name == product_name
+                )
+            )
+            if item_model:
+                session.delete(item_model)
+                session.flush()
+            
+            # Recalculate total
+            all_items = session.scalars(
+                select(OrderItemModel).where(OrderItemModel.order_id == draft_model.id)
+            ).all()
+            draft_model.total_amount = sum(i.quantity * i.price_per_unit for i in all_items)
+            session.flush()
+
+            return self._order_draft_from_model(draft_model, all_items)
+
+    def confirm_order_draft(self, tenant_id: UUID, conversation_id: UUID) -> OrderDraft | None:
+        with self._session_scope() as session:
+            draft_model = session.scalar(
+                select(OrderDraftModel).where(
+                    OrderDraftModel.tenant_id == str(tenant_id),
+                    OrderDraftModel.conversation_id == str(conversation_id)
+                )
+            )
+            if not draft_model:
+                return None
+
+            draft_model.status = "confirmed"
+            session.flush()
+            
+            all_items = session.scalars(
+                select(OrderItemModel).where(OrderItemModel.order_id == draft_model.id)
+            ).all()
+            return self._order_draft_from_model(draft_model, all_items)
+
+    def update_order_draft_checkout_info(
+        self, tenant_id: UUID, conversation_id: UUID, customer_phone: str, delivery_address: str
+    ) -> OrderDraft | None:
+        with self._session_scope() as session:
+            draft_model = session.scalar(
+                select(OrderDraftModel).where(
+                    OrderDraftModel.tenant_id == str(tenant_id),
+                    OrderDraftModel.conversation_id == str(conversation_id)
+                )
+            )
+            if not draft_model:
+                return None
+                
+            draft_model.customer_phone = customer_phone
+            draft_model.delivery_address = delivery_address
+            session.flush()
+            
+            all_items = session.scalars(
+                select(OrderItemModel).where(OrderItemModel.order_id == draft_model.id)
+            ).all()
+            return self._order_draft_from_model(draft_model, all_items)
+
     def _session_scope(self) -> AbstractContextManager[Session]:
         return _SessionScope(self.session_factory)
 
@@ -1186,6 +1456,7 @@ class SqlAlchemyStore:
             temperature=model.temperature,
             max_tokens=model.max_tokens,
             model_name=model.model_name,
+            telegram_bot_token=getattr(model, "telegram_bot_token", None),
             created_at=_timestamp(model.created_at),
             updated_at=_timestamp(model.updated_at),
         )
@@ -1235,11 +1506,26 @@ class SqlAlchemyStore:
         )
 
     @staticmethod
+    def _customer_from_model(model: CustomerModel) -> Customer:
+        return Customer(
+            id=UUID(model.id),
+            tenant_id=UUID(model.tenant_id),
+            external_id=model.external_id,
+            channel=model.channel,
+            name=model.name,
+            phone=model.phone,
+            tags=list(model.tags),
+            created_at=_timestamp(model.created_at),
+            updated_at=_timestamp(model.updated_at),
+        )
+
+    @staticmethod
     def _conversation_from_model(model: ConversationModel) -> Conversation:
         return Conversation(
             id=UUID(model.id),
             tenant_id=UUID(model.tenant_id),
             agent_id=UUID(model.agent_id),
+            customer_id=UUID(model.customer_id) if model.customer_id else None,
             channel=model.channel,
             status=ConversationStatus(model.status),
             summary=model.summary,
@@ -1274,6 +1560,32 @@ class SqlAlchemyStore:
             updated_at=_timestamp(model.created_at),
         )
 
+    @staticmethod
+    def _order_item_from_model(item_model: OrderItemModel) -> OrderItem:
+        return OrderItem(
+            id=UUID(item_model.id),
+            order_id=UUID(item_model.order_id),
+            product_name=item_model.product_name,
+            product_external_id=item_model.product_external_id,
+            quantity=item_model.quantity,
+            price_per_unit=item_model.price_per_unit,
+            created_at=item_model.created_at,
+        )
+
+    @staticmethod
+    def _order_draft_from_model(model: OrderDraftModel, items: Sequence[OrderItemModel]) -> OrderDraft:
+        return OrderDraft(
+            id=UUID(model.id),
+            tenant_id=UUID(model.tenant_id),
+            conversation_id=UUID(model.conversation_id),
+            customer_phone=model.customer_phone,
+            delivery_address=model.delivery_address,
+            status=model.status,
+            total_amount=model.total_amount,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            items=[SqlAlchemyStore._order_item_from_model(i) for i in items],
+        )
 
 class _SessionScope:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:

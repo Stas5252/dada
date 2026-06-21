@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ArrowLeft, Play, Save, UploadCloud } from "lucide-react";
-import { publishAgentAction, updateAgentAction } from "../../actions";
+import { ArrowLeft, Play, Save, UploadCloud, MessageSquare } from "lucide-react";
+import { publishAgentAction, updateAgentAction, connectTelegramAction } from "../../actions";
 import { ActionNotice } from "../../components/ActionNotice";
 import { DashboardShell } from "../../components/DashboardShell";
 import { EmptyState } from "../../components/EmptyState";
@@ -247,6 +247,53 @@ export default async function AgentEditPage({ params, searchParams }: AgentEditP
                   </button>
                 </form>
               </section>
+
+              {agent.channel === "web_widget" && (
+                <section className="rounded-xl border border-white/5 bg-zinc-900/50 p-6">
+                  <h2 className="text-lg font-semibold text-white">Установка виджета</h2>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Разместите этот код перед закрывающим тегом <code>&lt;/body&gt;</code> на вашем сайте:
+                  </p>
+                  <div className="mt-4 rounded-lg border border-white/5 bg-black p-3 overflow-x-auto">
+                    <pre className="text-xs text-emerald-400 font-mono whitespace-pre-wrap select-all">
+{`<script 
+  src="${process.env.NEXT_PUBLIC_APP_URL || 'https://callforce.app'}/widget.js" 
+  data-agent-id="${agent.id}"
+></script>`}
+                    </pre>
+                  </div>
+                </section>
+              )}
+
+              {agent.channel === "telegram" && (
+                <section className="rounded-xl border border-white/5 bg-zinc-900/50 p-6">
+                  <h2 className="text-lg font-semibold text-white">Telegram Setup</h2>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Подключите вашего бота, чтобы отвечать клиентам в Telegram. Введите Bot Token от <strong>@BotFather</strong>.
+                  </p>
+                  <form action={connectTelegramAction} className="mt-4 space-y-3">
+                    <input name="agent_id" type="hidden" value={agent.id} />
+                    <input name="return_to" type="hidden" value={`/agents/${agent.id}`} />
+                    <label className="block">
+                      <span className="sr-only">Bot Token</span>
+                      <input
+                        type="password"
+                        name="bot_token"
+                        placeholder="1234567890:AAH_XXXXXXXXXXXXXXX"
+                        className="w-full rounded-lg border border-white/10 bg-black px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
+                        required
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-400"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Подключить Telegram Бота
+                    </button>
+                  </form>
+                </section>
+              )}
 
               <section className="rounded-xl border border-white/5 bg-zinc-900/50 p-6">
                 <h2 className="text-lg font-semibold text-white">QA перед запуском</h2>

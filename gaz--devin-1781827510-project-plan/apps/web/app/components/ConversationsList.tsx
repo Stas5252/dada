@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { MessageSquare, Phone, AlertTriangle, CheckCircle, Search } from "lucide-react";
 import { StatusPill } from "./StatusPill";
 import { EmptyState } from "./EmptyState";
@@ -26,6 +27,14 @@ type FilterType = "all" | "telegram" | "sip" | "escalated" | "resolved";
 export function ConversationsList({ initialConversations }: ConversationsListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const router = useRouter();
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      router.refresh();
+    }, 5000); // 5 seconds polling
+    return () => clearInterval(interval);
+  }, [router]);
 
   const filteredConversations = initialConversations.filter((c) => {
     // Filter by channel/status

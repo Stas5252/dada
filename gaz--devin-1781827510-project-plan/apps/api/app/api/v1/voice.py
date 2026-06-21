@@ -121,13 +121,14 @@ async def preview_voice_turn(
 
     conversation_uuid = uuid5(NAMESPACE_URL, f"voice_session:{session_id}")
     orchestrator = AgentOrchestrator(store=app_store, settings=settings)
-    response_text = await orchestrator.process_message(
+    orchestrator_result = await orchestrator.process_message(
         tenant_id=tenant_uuid,
         agent_id=payload.agent_id,
         conversation_id=conversation_uuid,
         customer_message=payload.text,
         channel="voice",
     )
+    response_text = orchestrator_result.response_text
 
     try:
         session = service.record_voice_turn(
@@ -149,6 +150,7 @@ async def preview_voice_turn(
         channel="voice",
         customer_text=payload.text,
         agent_response_text=response_text,
+        confidence_score=orchestrator_result.confidence_score,
     )
 
     return VoicePreviewTurnResponse(
@@ -201,13 +203,14 @@ async def process_voice_audio(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     voice_id = agent.voice_id
 
-    response_text = await orchestrator.process_message(
+    orchestrator_result = await orchestrator.process_message(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
         customer_message=customer_text,
         channel="voice",
     )
+    response_text = orchestrator_result.response_text
 
     try:
         service.record_voice_turn(
@@ -226,6 +229,7 @@ async def process_voice_audio(
         channel="voice",
         customer_text=customer_text,
         agent_response_text=response_text,
+        confidence_score=orchestrator_result.confidence_score,
     )
 
     # 3. TTS
@@ -259,6 +263,7 @@ async def initiate_call(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     from app.api.v1.dependencies import check_billing_limit
+
     check_billing_limit(tenant_uuid, app_store)
 
     call_sid = await trigger_outbound_call(
@@ -291,6 +296,7 @@ async def twilio_voice_webhook(
     tenant = app_store.get_tenant(tenant_uuid)
 
     from app.api.v1.dependencies import check_billing_limit
+
     try:
         check_billing_limit(tenant_uuid, app_store)
     except HTTPException as e:
@@ -313,7 +319,7 @@ async def twilio_voice_webhook(
     if not agent:
         return Response(
             content=generate_voice_twiml("Простите, агент не найден. Всего доброго!"),
-            media_type="application/xml"
+            media_type="application/xml",
         )
 
     # Calculate action webhook URL for next gather turn
@@ -323,21 +329,21 @@ async def twilio_voice_webhook(
         # Start of call greeting
         company_name = tenant.name if tenant else ""
         greeting = (
-            f"Здравствуйте! Я ИИ-ассистент компании {company_name}. "
-            "Чем я могу вам помочь?"
+            f"Здравствуйте! Я ИИ-ассистент компании {company_name}. " "Чем я могу вам помочь?"
         )
         twiml_xml = generate_voice_twiml(greeting, gather_action_url=next_action_url)
         return Response(content=twiml_xml, media_type="application/xml")
 
     # SpeechResult exists: run orchestrator
     orchestrator = AgentOrchestrator(store=app_store, settings=settings)
-    response_text = await orchestrator.process_message(
+    orchestrator_result = await orchestrator.process_message(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
         customer_message=SpeechResult,
         channel="sip",
     )
+    response_text = orchestrator_result.response_text
 
     app_store.record_chat_turn(
         tenant_id=tenant_uuid,
@@ -346,6 +352,7 @@ async def twilio_voice_webhook(
         channel="sip",
         customer_text=SpeechResult,
         agent_response_text=response_text,
+        confidence_score=orchestrator_result.confidence_score,
     )
     try:
         service.record_voice_turn(
@@ -382,6 +389,7 @@ async def twilio_sms_webhook(
     tenant_settings = tenant.settings if tenant else {}
 
     from app.api.v1.dependencies import check_billing_limit
+
     try:
         check_billing_limit(tenant_uuid, app_store)
     except HTTPException as e:
@@ -401,13 +409,14 @@ async def twilio_sms_webhook(
     conversation_uuid = uuid5(NAMESPACE_URL, f"twilio_sms:{From}:{agent_id}")
 
     orchestrator = AgentOrchestrator(store=app_store, settings=settings)
-    response_text = await orchestrator.process_message(
+    orchestrator_result = await orchestrator.process_message(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
         customer_message=Body,
-        channel="telegram", # Normalizing to text chat
+        channel="telegram",  # Normalizing to text chat
     )
+    response_text = orchestrator_result.response_text
 
     app_store.record_chat_turn(
         tenant_id=tenant_uuid,
@@ -416,6 +425,7 @@ async def twilio_sms_webhook(
         channel="telegram",
         customer_text=Body,
         agent_response_text=response_text,
+        confidence_score=orchestrator_result.confidence_score,
     )
 
     twiml = (
@@ -445,6 +455,7 @@ async def voice_websocket_stream(
     tenant_uuid = UUID(tenant_id)
 
     from app.api.v1.dependencies import check_billing_limit
+
     try:
         check_billing_limit(tenant_uuid, app_store)
     except HTTPException:
@@ -482,13 +493,14 @@ async def voice_websocket_stream(
 
                             # 2. Run Orchestrator
                             orchestrator = AgentOrchestrator(store=app_store, settings=settings)
-                            response_text = await orchestrator.process_message(
+                            orchestrator_result = await orchestrator.process_message(
                                 tenant_id=tenant_uuid,
                                 agent_id=agent_uuid,
                                 conversation_id=conversation_uuid,
                                 customer_message=customer_text,
                                 channel="voice",
                             )
+                            response_text = orchestrator_result.response_text
                             app_store.record_chat_turn(
                                 tenant_id=tenant_uuid,
                                 agent_id=agent_uuid,
@@ -496,6 +508,7 @@ async def voice_websocket_stream(
                                 channel="voice",
                                 customer_text=customer_text,
                                 agent_response_text=response_text,
+                                confidence_score=orchestrator_result.confidence_score,
                             )
                             try:
                                 service.record_voice_turn(
@@ -526,7 +539,7 @@ async def voice_websocket_stream(
                                 # Stream the audio chunks back to the client
                                 chunk_size = 4096
                                 for i in range(0, len(audio_response), chunk_size):
-                                    await websocket.send_bytes(audio_response[i:i+chunk_size])
+                                    await websocket.send_bytes(audio_response[i : i + chunk_size])
 
                             await websocket.send_text(json.dumps({"event": "done"}))
                         else:
@@ -540,11 +553,106 @@ async def voice_websocket_stream(
                             )
                     else:
                         await websocket.send_text(
-                            json.dumps(
-                                {"event": "error", "message": "No audio data received"}
-                            )
+                            json.dumps({"event": "error", "message": "No audio data received"})
                         )
     except WebSocketDisconnect:
         logger.info("WebSocket voice stream disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+
+import base64
+
+@router.websocket("/webhooks/twilio/stream/{agent_id}")
+async def twilio_media_stream_websocket(
+    websocket: WebSocket,
+    agent_id: str,
+    tenant_id: str | None = None,
+    app_store: AppStore = Depends(get_app_store),
+    settings: Settings = Depends(get_settings),
+    speech_service: SpeechService = Depends(get_speech_service),
+    service: VoiceSessionService = Depends(get_voice_service),
+) -> None:
+    """Real-time Twilio Media Stream WebSocket connection."""
+    await websocket.accept()
+    if not tenant_id:
+        tenant_id = settings.demo_tenant_id
+
+    tenant_uuid = UUID(tenant_id)
+    from app.api.v1.dependencies import check_billing_limit
+    try:
+        check_billing_limit(tenant_uuid, app_store)
+    except HTTPException:
+        logger.error("Billing limit reached for tenant %s", tenant_id)
+        await websocket.close()
+        return
+
+    agent_uuid = UUID(agent_id)
+    session_id = str(uuid4())
+    conversation_uuid = uuid5(NAMESPACE_URL, f"twilio_stream:{session_id}")
+    service.get_or_start_session(tenant_id, session_id)
+
+    stream_sid = None
+    try:
+        audio_buffer = bytearray()
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+
+            if msg["event"] == "start":
+                stream_sid = msg["start"]["streamSid"]
+                logger.info(f"Twilio stream started: {stream_sid}")
+            
+            elif msg["event"] == "media":
+                payload = msg["media"]["payload"]
+                chunk = base64.b64decode(payload)
+                audio_buffer.extend(chunk)
+                
+            elif msg["event"] == "stop":
+                logger.info(f"Twilio stream stopped: {stream_sid}")
+                if len(audio_buffer) > 0:
+                    # 1. Speech-to-Text
+                    # Save as raw mulaw or pass bytes to whisper
+                    customer_text = await speech_service.speech_to_text(bytes(audio_buffer), filename="audio.ulaw")
+                    audio_buffer.clear()
+
+                    if customer_text and not customer_text.startswith("[STT Error"):
+                        # 2. Run Orchestrator
+                        orchestrator = AgentOrchestrator(store=app_store, settings=settings)
+                        orchestrator_result = await orchestrator.process_message(
+                            tenant_id=tenant_uuid,
+                            agent_id=agent_uuid,
+                            conversation_id=conversation_uuid,
+                            customer_message=customer_text,
+                            channel="sip",
+                        )
+                        response_text = orchestrator_result.response_text
+                        app_store.record_chat_turn(
+                            tenant_id=tenant_uuid,
+                            agent_id=agent_uuid,
+                            conversation_id=conversation_uuid,
+                            channel="sip",
+                            customer_text=customer_text,
+                            agent_response_text=response_text,
+                            confidence_score=orchestrator_result.confidence_score,
+                        )
+                        
+                        # 3. TTS
+                        agent = app_store.get_agent(tenant_uuid, agent_uuid)
+                        voice_id = agent.voice_id if agent else "alloy"
+                        audio_response = await speech_service.text_to_speech(response_text, voice=voice_id)
+
+                        if audio_response and stream_sid:
+                            # Send back Base64 audio payload
+                            encoded_audio = base64.b64encode(audio_response).decode("utf-8")
+                            await websocket.send_text(json.dumps({
+                                "event": "media",
+                                "streamSid": stream_sid,
+                                "media": {
+                                    "payload": encoded_audio
+                                }
+                            }))
+
+    except WebSocketDisconnect:
+        logger.info("Twilio WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Twilio WebSocket error: {e}")

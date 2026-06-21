@@ -52,6 +52,9 @@ export default function WidgetPage({ params }: { params: Promise<{ agentId: stri
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [hasSubmittedInfo, setHasSubmittedInfo] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +64,14 @@ export default function WidgetPage({ params }: { params: Promise<{ agentId: stri
       localStorage.setItem(`cf_widget_session_${agentId}`, sid);
     }
     setSessionId(sid);
+
+    const savedName = localStorage.getItem(`cf_widget_name_${agentId}`);
+    const savedPhone = localStorage.getItem(`cf_widget_phone_${agentId}`);
+    if (savedName) setCustomerName(savedName);
+    if (savedPhone) setCustomerPhone(savedPhone);
+    if (savedName || savedPhone) {
+      setHasSubmittedInfo(true);
+    }
   }, [agentId]);
 
   useEffect(() => {
@@ -109,6 +120,8 @@ export default function WidgetPage({ params }: { params: Promise<{ agentId: stri
         body: JSON.stringify({
           session_id: sessionId,
           message: text,
+          customer_name: customerName || undefined,
+          customer_phone: customerPhone || undefined,
         }),
         headers: {
           Accept: "application/json",
@@ -131,6 +144,60 @@ export default function WidgetPage({ params }: { params: Promise<{ agentId: stri
       setIsTyping(false);
     }
   };
+
+  const handleInfoSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customerName) localStorage.setItem(`cf_widget_name_${agentId}`, customerName);
+    if (customerPhone) localStorage.setItem(`cf_widget_phone_${agentId}`, customerPhone);
+    setHasSubmittedInfo(true);
+  };
+
+  if (!hasSubmittedInfo) {
+    return (
+      <div className="flex h-screen w-full flex-col bg-zinc-950 font-sans items-center justify-center p-6">
+        <div className="w-full max-w-sm bg-zinc-900/50 border border-white/10 rounded-2xl p-6 shadow-xl backdrop-blur-md">
+          <div className="flex flex-col items-center mb-6 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500 mb-4">
+              <Bot className="h-6 w-6" />
+            </div>
+            <h2 className="text-lg font-semibold text-white">CallForce AI</h2>
+            <p className="text-sm text-zinc-400 mt-1">Оставьте контакты, чтобы мы могли связаться с вами, если вы уйдете.</p>
+          </div>
+          
+          <form onSubmit={handleInfoSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">Имя (необязательно)</label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Как к вам обращаться?"
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">Телефон (необязательно)</label>
+              <input
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                placeholder="+7 (999) 000-00-00"
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors"
+              />
+            </div>
+            <div className="pt-2">
+              <button
+                type="submit"
+                className="w-full bg-white text-black text-sm font-semibold py-2.5 rounded-lg hover:bg-zinc-200 transition-colors"
+              >
+                Начать чат
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-950 font-sans">

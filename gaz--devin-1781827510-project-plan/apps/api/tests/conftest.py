@@ -5,6 +5,7 @@ from contextlib import suppress
 import pytest
 from sqlalchemy import Engine, create_engine
 
+from app.database import create_schema
 from app.settings import get_settings
 from app.store_factory import get_app_store
 
@@ -30,6 +31,10 @@ def clean_db() -> Generator[None, None, None]:
     if os.path.exists(db_file):
         with suppress(Exception):
             os.remove(db_file)
+            
+    engine = create_engine("sqlite:///test_run.db")
+    create_schema(engine)
+    engine.dispose()
 
     yield
 

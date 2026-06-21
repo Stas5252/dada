@@ -1,7 +1,7 @@
 from functools import lru_cache
 from uuid import UUID
 
-from app.database import build_engine, build_session_factory, create_schema
+from app.database import build_engine, build_session_factory
 from app.settings import get_settings
 from app.sqlalchemy_store import SqlAlchemyStore
 from app.store import InMemoryStore, store
@@ -14,7 +14,6 @@ def get_app_store() -> AppStore:
     settings = get_settings()
     if settings.store_backend == "sqlalchemy":
         engine = build_engine(settings.database_url)
-        create_schema(engine)
         app_store: AppStore = SqlAlchemyStore(build_session_factory(engine), settings)
     else:
         app_store = store

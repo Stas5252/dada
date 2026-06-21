@@ -75,22 +75,20 @@ export function KnowledgeSourceForm() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-              {sourceType === "url" ? "Содержимое страницы" : "Содержимое"}
-            </label>
-            <textarea
-              name="content"
-              placeholder={
-                sourceType === "url"
-                  ? "Скопируйте ключевой текст страницы FAQ, меню или политики доставки. Автоматический crawler будет отдельным production-интеграционным слоем."
-                  : "Доставка занимает 45-60 минут. Бесплатная доставка от 1000 рублей. Оплата доступна картой, наличными или по ссылке."
-              }
-              required
-              rows={6}
-              className="w-full bg-black border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors resize-y"
-            />
-          </div>
+          {sourceType !== "url" && (
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Содержимое
+              </label>
+              <textarea
+                name="content"
+                placeholder="Доставка занимает 45-60 минут. Бесплатная доставка от 1000 рублей. Оплата доступна картой, наличными или по ссылке."
+                required
+                rows={6}
+                className="w-full bg-black border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors resize-y"
+              />
+            </div>
+          )}
         </>
       )}
 

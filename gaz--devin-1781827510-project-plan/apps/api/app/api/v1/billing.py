@@ -75,3 +75,41 @@ async def get_billing_status(
         messages_limit=limit,
         conversations_used=conversations_used,
     )
+
+
+from fastapi import Request
+import logging
+logger = logging.getLogger(__name__)
+
+@router.post("/yookassa/webhook")
+async def yookassa_webhook(
+    request: Request,
+    app_store: AppStore = Depends(get_app_store),
+) -> dict[str, str]:
+    """
+    Handle incoming YooKassa payment events.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event_type = payload.get("event")
+    if event_type == "payment.succeeded":
+        payment_obj = payload.get("object", {})
+        metadata = payment_obj.get("metadata", {})
+        
+        tenant_id_str = metadata.get("tenant_id")
+        new_plan = metadata.get("plan_name")
+        
+        if tenant_id_str and new_plan:
+            try:
+                tenant_uuid = UUID(tenant_id_str)
+                tenant = app_store.get_tenant(tenant_uuid)
+                if tenant:
+                    app_store.update_tenant_plan(tenant_uuid, new_plan)
+                    logger.info(f"Tenant {tenant_id_str} upgraded to {new_plan}")
+            except Exception as e:
+                logger.error(f"Failed to process payment metadata: {e}")
+
+    return {"status": "ok"}

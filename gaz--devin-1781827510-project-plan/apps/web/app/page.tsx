@@ -1,5 +1,6 @@
 import { Phone, MessageSquare, Database, Zap, Workflow, ShieldCheck, Check, ArrowRight, Activity, TerminalSquare, Play } from "lucide-react";
 import Link from "next/link";
+import { MotionDiv } from "./components/MotionWrapper";
 
 const features = [
   {
@@ -149,7 +150,7 @@ export default function Home() {
       {/* Hero Section */}
       <section className="relative z-10 container mx-auto px-6 pt-32 pb-24 md:pt-48 md:pb-32">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
-          <div className="max-w-2xl">
+          <MotionDiv className="max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-zinc-300 mb-8 backdrop-blur-md">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               API & Dashboard Доступны
@@ -169,7 +170,7 @@ export default function Home() {
                 Смотреть возможности
               </a>
             </div>
-          </div>
+          </MotionDiv>
 
           {/* Hero Terminal/Code Block Visual */}
           <div className="relative">
@@ -247,14 +248,16 @@ export default function Home() {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature, idx) => (
-              <div key={idx} className="p-8 rounded-2xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors group">
-                <div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center mb-6 border border-white/5 group-hover:scale-105 transition-transform">
-                  {feature.icon}
+            {features.map((f, i) => (
+              <MotionDiv key={i} delay={i * 0.1} className="p-6 rounded-2xl border border-white/5 bg-zinc-900/50 hover:bg-zinc-900 transition-colors">
+                <div className="w-12 h-12 rounded-lg bg-zinc-800 flex items-center justify-center mb-6 border border-white/5">
+                  {f.icon}
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-3">{feature.title}</h3>
-                <p className="text-zinc-400 leading-relaxed text-sm">{feature.desc}</p>
-              </div>
+                <h3 className="text-lg font-semibold text-white mb-3">{f.title}</h3>
+                <p className="text-zinc-400 leading-relaxed text-sm">
+                  {f.desc}
+                </p>
+              </MotionDiv>
             ))}
           </div>
         </div>
@@ -298,23 +301,27 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-            {pricing.map((plan, idx) => (
-              <div key={idx} className={`relative p-8 rounded-2xl border ${plan.featured ? 'border-white/20 bg-white/5' : 'border-white/5 bg-black'} flex flex-col`}>
-                {plan.featured && (
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {pricing.map((p, i) => (
+              <MotionDiv
+                key={i}
+                delay={i * 0.1}
+                className={`relative p-8 rounded-2xl border ${p.featured ? "border-emerald-500/50 bg-emerald-500/5" : "border-white/5 bg-zinc-900/50"} flex flex-col`}
+              >
+                {p.featured && (
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-black text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
                     Самый популярный
                   </div>
                 )}
-                <div className="text-lg font-medium text-white mb-2">{plan.name}</div>
+                <div className="text-lg font-medium text-white mb-2">{p.name}</div>
                 <div className="flex items-baseline gap-1 mb-2">
-                  <span className="text-3xl font-bold text-white">{plan.price}</span>
-                  <span className="text-sm text-zinc-500">{plan.period}</span>
+                  <span className="text-3xl font-bold text-white">{p.price}</span>
+                  <span className="text-sm text-zinc-500">{p.period}</span>
                 </div>
-                <p className="text-sm text-zinc-400 mb-8">{plan.desc}</p>
+                <p className="text-sm text-zinc-400 mb-8">{p.desc}</p>
 
                 <ul className="space-y-4 mb-8 flex-1">
-                  {plan.features.map((feature, fIdx) => (
+                  {p.features.map((feature, fIdx) => (
                     <li key={fIdx} className="flex items-center gap-3 text-sm text-zinc-300">
                       <Check className="w-4 h-4 text-emerald-500 shrink-0" />
                       {feature}
@@ -325,14 +332,14 @@ export default function Home() {
                 <Link
                   href="/register"
                   className={`block w-full text-center py-3 rounded-lg font-medium transition-colors ${
-                    plan.featured
+                    p.featured
                       ? 'bg-white text-black hover:bg-zinc-200'
                       : 'bg-white/5 text-white hover:bg-white/10'
                   }`}
                 >
-                  {plan.featured ? 'Начать бесплатно' : 'Выбрать тариф'}
+                  {p.featured ? 'Начать бесплатно' : 'Выбрать тариф'}
                 </Link>
-              </div>
+              </MotionDiv>
             ))}
           </div>
         </div>

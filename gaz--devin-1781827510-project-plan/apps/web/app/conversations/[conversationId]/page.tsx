@@ -5,7 +5,8 @@ import { DashboardShell } from "../../components/DashboardShell";
 import { ResultNotice } from "../../components/ResultNotice";
 import { StatusPill } from "../../components/StatusPill";
 import { getConversationDetail } from "../../../lib/mvp-data";
-import { ArrowLeft, User, Bot, Wrench } from "lucide-react";
+import { ArrowLeft, Wrench } from "lucide-react";
+import { OperatorConsole } from "../../components/OperatorConsole";
 
 function toolTone(status: "success" | "skipped" | "failed") {
   if (status === "success") {
@@ -113,55 +114,13 @@ export default async function ConversationDetailPage({ params, searchParams }: C
           </article>
         </div>
 
-        {/* Transcript */}
-        <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden">
-          <div className="p-6 border-b border-white/5">
-            <h2 className="text-lg font-semibold text-white">Transcript</h2>
-            <p className="text-sm text-zinc-400">Messages, source attribution и operator/system events.</p>
-          </div>
-          <div className="p-6 space-y-4">
-            {conversation.messages.map((message) => (
-              <article
-                key={message.id}
-                className={`flex gap-3 ${message.role === "customer" ? "" : "flex-row-reverse"}`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  message.role === "customer"
-                    ? "bg-blue-500/10 text-blue-400"
-                    : "bg-emerald-500/10 text-emerald-400"
-                }`}>
-                  {message.role === "customer" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                </div>
-                <div className={`flex-1 max-w-[80%] ${message.role === "customer" ? "" : "text-right"}`}>
-                  <div className={`inline-block rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    message.role === "customer"
-                      ? "bg-blue-500/10 text-zinc-200 rounded-tl-sm"
-                      : "bg-zinc-800 text-zinc-200 rounded-tr-sm"
-                  }`}>
-                    {message.content}
-                  </div>
-                  <div className={`flex items-center gap-2 mt-1.5 text-xs text-zinc-600 ${message.role === "customer" ? "" : "justify-end"}`}>
-                    <span className="font-medium capitalize">{message.role}</span>
-                    <span>·</span>
-                    <span>{message.createdAt}</span>
-                  </div>
-                  {message.sources && message.sources.length > 0 ? (
-                    <div className={`flex gap-1.5 mt-2 flex-wrap ${message.role === "customer" ? "" : "justify-end"}`}>
-                      {message.sources.map((source) => (
-                        <span
-                          key={source}
-                          className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono"
-                        >
-                          {source}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        {/* Operator Console */}
+        <OperatorConsole
+          conversationId={conversation.id}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          messages={conversation.messages as any}
+          status={conversation.status}
+        />
       </div>
     </DashboardShell>
   );

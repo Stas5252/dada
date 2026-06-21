@@ -18,7 +18,7 @@ def test_create_source_runs_idempotent_local_ingestion() -> None:
         KnowledgeSourceCreateRequest(
             title="Delivery FAQ",
             source_type="manual",
-            content="Delivery takes 45 minutes. " * 80,
+            content="Delivery takes 45 minutes.\n\n" * 80,
         ),
     )
 

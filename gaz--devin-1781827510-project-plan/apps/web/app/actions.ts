@@ -149,6 +149,20 @@ export async function createKnowledgeSourceAction(formData: FormData) {
     redirect(noticePath("/knowledge", "knowledge-error"));
   }
 
+  if (sourceType === "url") {
+    const title = textValue(formData, "title");
+    if (!title || !title.startsWith("http")) {
+      redirect(noticePath("/knowledge", "knowledge-invalid"));
+    }
+    const result = await mutateCoreApi<CoreKnowledgeSource>("/api/v1/knowledge/upload-url", {
+      url: title,
+    });
+    if (result.state === "live") {
+      redirect(noticePath("/knowledge", "knowledge-created"));
+    }
+    redirect(noticePath("/knowledge", "knowledge-error"));
+  }
+
   const title = textValue(formData, "title");
   const content = textValue(formData, "content");
 
@@ -466,6 +480,16 @@ export async function updateTenantSettingsAction(formData: FormData) {
   const twilio_phone_number = textValue(formData, "twilio_phone_number");
   const yookassa_shop_id = textValue(formData, "yookassa_shop_id");
   const yookassa_secret_key = textValue(formData, "yookassa_secret_key");
+  const sip_server = textValue(formData, "sip_server");
+  const sip_provider = textValue(formData, "sip_provider");
+  const sip_login = textValue(formData, "sip_login");
+  const sip_password = textValue(formData, "sip_password");
+  
+  const whatsapp_token = textValue(formData, "whatsapp_token");
+  const whatsapp_phone_number_id = textValue(formData, "whatsapp_phone_number_id");
+  const whatsapp_verify_token = textValue(formData, "whatsapp_verify_token");
+  const vk_group_token = textValue(formData, "vk_group_token");
+  const vk_confirmation_code = textValue(formData, "vk_confirmation_code");
 
   const settings = {
     telegram_bot_token,
@@ -474,6 +498,15 @@ export async function updateTenantSettingsAction(formData: FormData) {
     twilio_phone_number,
     yookassa_shop_id,
     yookassa_secret_key,
+    sip_server,
+    sip_provider,
+    sip_login,
+    sip_password,
+    whatsapp_token,
+    whatsapp_phone_number_id,
+    whatsapp_verify_token,
+    vk_group_token,
+    vk_confirmation_code,
   };
 
   const result = await mutateCoreApi<Record<string, object>>(`/api/v1/tenants/${tenantId}/settings`, {
@@ -485,6 +518,26 @@ export async function updateTenantSettingsAction(formData: FormData) {
   }
 
   redirect(noticePath("/settings/channels", "settings-error"));
+}
+
+export async function connectTelegramAction(formData: FormData) {
+  const agentId = textValue(formData, "agent_id");
+  const botToken = textValue(formData, "bot_token");
+  const returnTo = safeAgentReturnPath(textValue(formData, "return_to") || `/agents/${agentId}`);
+
+  if (!agentId || !botToken) {
+    redirect(noticePath(returnTo, "telegram-invalid-token"));
+  }
+
+  const result = await mutateCoreApi<CoreAgent>(`/api/v1/agents/${agentId}/telegram/connect`, {
+    bot_token: botToken,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath(returnTo, "telegram-connected"));
+  }
+
+  redirect(noticePath(returnTo, "telegram-connection-error"));
 }
 
 export async function triggerOutboundCallAction(formData: FormData) {

@@ -55,5 +55,56 @@ class SpeechService:
             return b""
 
 
+class StreamingSTT:
+    """Abstract interface for streaming Speech-to-Text (e.g. Faster-Whisper)."""
+    async def process_audio_stream(self, audio_chunk: bytes) -> tuple[bool, str]:
+        """
+        Processes an audio chunk.
+        Returns (is_final, text). If is_final is True, the text is a completed utterance.
+        """
+        raise NotImplementedError
+
+
+class MockStreamingSTT(StreamingSTT):
+    """A mock implementation for local MVP testing."""
+    def __init__(self):
+        self.buffer = bytearray()
+        
+    async def process_audio_stream(self, audio_chunk: bytes) -> tuple[bool, str]:
+        self.buffer.extend(audio_chunk)
+        # Simulate final text when enough data is collected
+        if len(self.buffer) > 32000:  # arbitrary size
+            self.buffer.clear()
+            return True, "Привет, я хочу заказать пиццу"
+        return False, ""
+
+
+class StreamingTTS:
+    """Abstract interface for streaming Text-to-Speech (e.g. Kokoro / XTTS)."""
+    async def generate_audio_stream(self, text: str, voice: str = "alloy"):
+        """
+        Asynchronous generator yielding audio chunks.
+        """
+        raise NotImplementedError
+
+
+class MockStreamingTTS(StreamingTTS):
+    """A mock implementation for local MVP testing."""
+    async def generate_audio_stream(self, text: str, voice: str = "alloy"):
+        import asyncio
+        # Yield 3 fake chunks
+        for _ in range(3):
+            await asyncio.sleep(0.1)
+            yield b"\x00" * 1024
+
+
 def get_speech_service() -> SpeechService:
     return SpeechService()
+
+
+def get_streaming_stt() -> StreamingSTT:
+    return MockStreamingSTT()
+
+
+def get_streaming_tts() -> StreamingTTS:
+    return MockStreamingTTS()

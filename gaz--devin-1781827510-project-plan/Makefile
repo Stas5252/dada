@@ -50,7 +50,7 @@ smoke-check:
 
 
 migrate:
-	cd apps/api && uv run python ../../scripts/apply-migrations.py
+	cd apps/api && uv run alembic upgrade head
 
 seed-demo:
 	cd apps/api && uv run python ../../scripts/seed_demo_data.py

@@ -12,13 +12,14 @@ from app.store_factory import AppStore, get_app_store
 router = APIRouter(prefix="/webhooks/telegram", tags=["telegram"])
 
 
+from app.encryption import decrypt_token
+
 @router.post("/{agent_id}")
 async def telegram_webhook(
     agent_id: str,
     request: Request,
     settings: Settings = Depends(get_settings),
     app_store: AppStore = Depends(get_app_store),
-    telegram: TelegramChannelAdapter = Depends(get_telegram_adapter),
 ) -> dict[str, str]:
     """
     Handle incoming Telegram messages.
@@ -28,6 +29,24 @@ async def telegram_webhook(
         update = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON") from exc
+
+    # Find the agent's tenant
+    tenant_id_str = await _find_tenant_for_agent(agent_id, app_store)
+    if not tenant_id_str:
+        return {"status": "error", "message": "Agent not found"}
+
+    tenant_uuid = UUID(tenant_id_str)
+    agent_uuid = UUID(agent_id)
+    
+    agent = app_store.get_agent(tenant_uuid, agent_uuid)
+    if not agent or not agent.telegram_bot_token:
+        return {"status": "error", "message": "Agent not configured for Telegram"}
+        
+    decrypted_token = decrypt_token(agent.telegram_bot_token, settings.access_token_secret)
+    if not decrypted_token:
+        return {"status": "error", "message": "Failed to decrypt Telegram bot token"}
+        
+    telegram = get_telegram_adapter(bot_token=decrypted_token)
 
     # Deduplication: skip already-processed updates
     update_id = str(update.get("update_id", ""))
@@ -40,14 +59,8 @@ async def telegram_webhook(
         # Ignore unsupported updates gracefully (edits, reactions, etc.)
         return {"status": "ok"}
 
-    # Find the agent's tenant
-    tenant_id_str = await _find_tenant_for_agent(agent_id, app_store)
-    if not tenant_id_str:
-        return {"status": "error", "message": "Agent not found"}
-
-    tenant_uuid = UUID(tenant_id_str)
-
     from app.api.v1.dependencies import check_billing_limit
+
     try:
         check_billing_limit(tenant_uuid, app_store)
     except HTTPException as e:
@@ -66,21 +79,43 @@ async def telegram_webhook(
             return {"status": "error", "message": "Billing limit reached"}
         raise e
 
-    agent_uuid = UUID(agent_id)
-
     # Map Telegram chat_id -> stable conversation UUID
     conversation_uuid = uuid5(NAMESPACE_URL, f"tg_chat:{event.external_chat_id}:{agent_id}")
+
+    # Resolve or create customer
+    customer = app_store.get_customer_by_external_id(
+        tenant_id=tenant_uuid,
+        channel="telegram",
+        external_id=event.external_chat_id,
+    )
+    if not customer:
+        customer = app_store.create_customer(
+            tenant_id=tenant_uuid,
+            channel="telegram",
+            external_id=event.external_chat_id,
+            name=event.sender_name,
+        )
+    elif event.sender_name and customer.name != event.sender_name:
+        customer = (
+            app_store.update_customer(
+                tenant_id=tenant_uuid,
+                customer_id=customer.id,
+                name=event.sender_name,
+            )
+            or customer
+        )
 
     # Process message via Orchestrator
     orchestrator = AgentOrchestrator(store=app_store, settings=settings)
 
-    response_text = await orchestrator.process_message(
+    orchestrator_result = await orchestrator.process_message(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
         customer_message=event.text,
         channel="telegram",
     )
+    response_text = orchestrator_result.response_text
 
     recorded = app_store.record_chat_turn(
         tenant_id=tenant_uuid,
@@ -89,6 +124,8 @@ async def telegram_webhook(
         channel="telegram",
         customer_text=event.text,
         agent_response_text=response_text,
+        customer_id=customer.id,
+        confidence_score=orchestrator_result.confidence_score,
     )
     if not recorded:
         return {"status": "error", "message": "Agent not found"}

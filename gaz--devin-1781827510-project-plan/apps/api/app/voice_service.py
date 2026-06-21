@@ -64,7 +64,7 @@ class VoiceSessionService:
             session = self.apply_event(
                 session.session_id,
                 VoiceSessionEvent(tenant_id=tenant_id, event=VoiceEvent.TTS_FINISHED),
-        )
+            )
 
         if session.state != VoiceState.LISTENING:
             raise InvalidVoiceTransition(

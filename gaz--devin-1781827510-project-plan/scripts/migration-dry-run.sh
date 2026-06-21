@@ -55,15 +55,15 @@ if [[ ! -d "migrations" ]]; then
   exit 1
 fi
 
-if [[ ! -f "alembic.ini" ]]; then
+if [[ ! -f "apps/api/alembic.ini" ]]; then
   echo "No Alembic configuration found; migration dry-run skeleton validated."
   exit 0
 fi
 
-if ! command -v alembic >/dev/null 2>&1; then
+if ! cd apps/api && uv run alembic --version >/dev/null 2>&1; then
   echo "alembic is not installed; run the API dependency install first." >&2
   exit 1
 fi
 
-DATABASE_URL="$database_url" alembic upgrade head --sql > /tmp/gaz-migration-dry-run.sql
-echo "Generated /tmp/gaz-migration-dry-run.sql"
+cd apps/api && DATABASE_URL="$database_url" uv run alembic upgrade head --sql > ../../tmp/gaz-migration-dry-run.sql
+echo "Generated tmp/gaz-migration-dry-run.sql"

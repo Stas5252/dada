@@ -105,6 +105,7 @@ export type ConversationMessage = {
   content: string;
   createdAt: string;
   sources?: string[];
+  confidence?: number | null;
 };
 
 export type ConversationDetail = ConversationSummary & {
@@ -645,6 +646,7 @@ function mapConversationDetail(payload: CoreConversationDetail): ConversationDet
       sources: message.source_ids
         .map((sourceId) => sourceNames.get(sourceId))
         .filter((sourceName): sourceName is string => Boolean(sourceName)),
+      confidence: message.confidence,
     })),
     tools: [],
   };

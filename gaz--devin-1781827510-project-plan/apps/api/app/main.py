@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
         )
     elif settings.access_token_secret == "local-development-token-secret":
         import logging
+
         logging.getLogger(__name__).warning(
             "⚠️  ACCESS_TOKEN_SECRET is using the default insecure value. "
             "This is OK for local development, but MUST be changed for production."
@@ -54,11 +55,23 @@ def create_app() -> FastAPI:
             environment=settings.app_env,
         )
 
+    from contextlib import asynccontextmanager
+    import asyncio
+    
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        from app.asterisk_ari_service import get_asterisk_ari_service
+        ari_service = get_asterisk_ari_service()
+        task = asyncio.create_task(ari_service.run())
+        yield
+        task.cancel()
+
     app = FastAPI(
         title="CallForce API",
         version=settings.api_version,
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
     from slowapi.errors import RateLimitExceeded
     from slowapi.middleware import SlowAPIMiddleware
@@ -89,8 +102,13 @@ def create_app() -> FastAPI:
 
     app.include_router(api_keys_router, prefix="/api/v1")
     from app.api.v1.widget import router as widget_router
-
     app.include_router(widget_router, prefix="/api/v1")
+    
+    from app.api.v1.vk import router as vk_router
+    app.include_router(vk_router, prefix="/api/v1")
+    
+    from app.api.v1.whatsapp import router as whatsapp_router
+    app.include_router(whatsapp_router, prefix="/api/v1")
     app.add_middleware(TenantContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -100,6 +118,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router, prefix="/api/v1")
+    
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzip=True)
+
     return app
 
 

@@ -65,4 +65,8 @@ docker-compose logs -f
 ## Scaling and Maintenance
 - **Database Backups**: Use `pg_dump` on the `postgres` container to periodically back up your tenants and agents.
 - **Qdrant**: Vector storage data is saved in the `qdrant-data` docker volume.
-- **Monitoring**: To monitor errors in production, integrate Sentry (instructions to be provided).
+
+## Observability & Monitoring
+- **Grafana**: A pre-configured Grafana instance is deployed alongside the app. Access it at `https://grafana.your-domain.com`. The default login is `admin` / `GRAFANA_PASSWORD` (from `.env`).
+- **Prometheus**: Prometheus scrapes metrics from the FastAPI backend at `/metrics`. Grafana is auto-provisioned to use this as a data source.
+- **Sentry**: To monitor errors in production, integrate Sentry by setting `SENTRY_DSN` in the backend and `NEXT_PUBLIC_SENTRY_DSN` in the frontend `.env`.

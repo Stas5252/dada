@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Save, MessageSquare, PhoneCall, CreditCard, HelpCircle } from "lucide-react";
+import { ArrowLeft, Save, MessageSquare, PhoneCall, CreditCard, HelpCircle, MessageCircle } from "lucide-react";
 import { DashboardShell } from "../../components/DashboardShell";
 import { updateTenantSettingsAction } from "../../actions";
 import { fetchCoreApi, getCoreTenantId } from "../../../lib/core-api";
@@ -165,6 +165,155 @@ export default async function ChannelsPage({
                   defaultValue={settings.yookassa_secret_key || ""}
                   placeholder="live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                   className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-purple-500"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* SIP Telephony Block */}
+          <section className="bg-zinc-900/40 border border-white/5 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <PhoneCall className="w-6 h-6 text-orange-400" />
+              <div>
+                <h2 className="text-lg font-semibold text-white">SIP-телефония (Asterisk)</h2>
+                <p className="text-xs text-zinc-400">Прямое подключение SIP-транков (Zadarma, Mango, Novofon и др.).</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">SIP Server / Proxy</label>
+                <input
+                  type="text"
+                  name="sip_server"
+                  defaultValue={settings.sip_server || ""}
+                  placeholder="sip.zadarma.com"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-orange-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Provider Name</label>
+                <input
+                  type="text"
+                  name="sip_provider"
+                  defaultValue={settings.sip_provider || ""}
+                  placeholder="zadarma"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-orange-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">SIP Login</label>
+                <input
+                  type="text"
+                  name="sip_login"
+                  defaultValue={settings.sip_login || ""}
+                  placeholder="123456"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-orange-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">SIP Password</label>
+                <input
+                  type="password"
+                  name="sip_password"
+                  defaultValue={settings.sip_password || ""}
+                  placeholder="••••••••"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-orange-500"
+                />
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-start gap-2 text-xs text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
+              <HelpCircle className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" />
+              <p>
+                Как настроить: Введите данные для авторизации SIP-транка (предоставляются вашим провайдером). Платформа CallForce поднимет транк и будет обрабатывать входящие звонки напрямую через Asterisk ARI.
+              </p>
+            </div>
+          </section>
+
+          {/* WhatsApp Block */}
+          <section className="bg-zinc-900/40 border border-white/5 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <MessageCircle className="w-6 h-6 text-green-500" />
+              <div>
+                <h2 className="text-lg font-semibold text-white">WhatsApp (Meta Cloud API)</h2>
+                <p className="text-xs text-zinc-400">Официальная интеграция с WhatsApp Business.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Access Token</label>
+                <input
+                  type="password"
+                  name="whatsapp_token"
+                  defaultValue={settings.whatsapp_token || ""}
+                  placeholder="EAAL..."
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-green-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Phone Number ID</label>
+                <input
+                  type="text"
+                  name="whatsapp_phone_number_id"
+                  defaultValue={settings.whatsapp_phone_number_id || ""}
+                  placeholder="123456789012345"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Verify Token (для Webhook)</label>
+                <input
+                  type="text"
+                  name="whatsapp_verify_token"
+                  defaultValue={settings.whatsapp_verify_token || ""}
+                  placeholder="my_secure_token"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-green-500"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* VK Block */}
+          <section className="bg-zinc-900/40 border border-white/5 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <MessageCircle className="w-6 h-6 text-blue-500" />
+              <div>
+                <h2 className="text-lg font-semibold text-white">ВКонтакте (VK Communities)</h2>
+                <p className="text-xs text-zinc-400">Интеграция с сообщениями сообщества ВКонтакте.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Ключ доступа (Access Token)</label>
+                <input
+                  type="password"
+                  name="vk_group_token"
+                  defaultValue={settings.vk_group_token || ""}
+                  placeholder="vk1.a.xxxxxxxxxxxxxxxxxxx..."
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-blue-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Строка подтверждения (Confirmation Code)</label>
+                <input
+                  type="text"
+                  name="vk_confirmation_code"
+                  defaultValue={settings.vk_confirmation_code || ""}
+                  placeholder="a1b2c3d4"
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-blue-500"
                 />
               </div>
             </div>

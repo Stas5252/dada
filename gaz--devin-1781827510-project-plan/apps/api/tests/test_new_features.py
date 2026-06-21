@@ -202,7 +202,15 @@ def test_telegram_webhook_handles_valid_message():
     agents = store.list_agents(UUID(DEMO_TENANT_ID))
     if not agents:
         return  # Skip if no demo agents
-    agent_id = str(agents[0].id)
+    agent = agents[0]
+    agent_id = str(agent.id)
+    
+    # Set a fake bot token for the agent so the webhook accepts it
+    from app.encryption import encrypt_token
+    token_secret = get_settings().access_token_secret
+    encrypted_token = encrypt_token("fake_token", token_secret)
+    from app.schemas import AgentUpdateRequest
+    store.update_agent(UUID(DEMO_TENANT_ID), agent.id, AgentUpdateRequest(telegram_bot_token=encrypted_token))
 
     # Simulate Telegram update
     update = {
@@ -215,9 +223,13 @@ def test_telegram_webhook_handles_valid_message():
         },
     }
 
-    response = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    from unittest.mock import patch
+    with patch("app.channels.telegram_adapter.TelegramChannelAdapter.send_message") as mock_send:
+        from app.channels import SendResult
+        mock_send.return_value = SendResult(success=True)
+        response = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
 
 
 def test_telegram_webhook_deduplicates():
@@ -230,7 +242,15 @@ def test_telegram_webhook_deduplicates():
     agents = store.list_agents(UUID(DEMO_TENANT_ID))
     if not agents:
         return
-    agent_id = str(agents[0].id)
+    agent = agents[0]
+    agent_id = str(agent.id)
+    
+    # Set a fake bot token for the agent so the webhook accepts it
+    from app.encryption import encrypt_token
+    token_secret = get_settings().access_token_secret
+    encrypted_token = encrypt_token("fake_token", token_secret)
+    from app.schemas import AgentUpdateRequest
+    store.update_agent(UUID(DEMO_TENANT_ID), agent.id, AgentUpdateRequest(telegram_bot_token=encrypted_token))
 
     update = {
         "update_id": 999888777,
@@ -242,14 +262,18 @@ def test_telegram_webhook_deduplicates():
         },
     }
 
-    # First request
-    r1 = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
-    assert r1.status_code == 200
+    from unittest.mock import patch
+    with patch("app.channels.telegram_adapter.TelegramChannelAdapter.send_message") as mock_send:
+        from app.channels import SendResult
+        mock_send.return_value = SendResult(success=True)
+        # First request
+        r1 = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
+        assert r1.status_code == 200
 
-    # Second request with same update_id - should be deduped
-    r2 = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
-    assert r2.status_code == 200
-    assert r2.json().get("detail") == "duplicate"
+        # Second request with same update_id - should be deduped
+        r2 = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
+        assert r2.status_code == 200
+        assert r2.json().get("detail") == "duplicate"
 
 
 def test_widget_chat_endpoint():

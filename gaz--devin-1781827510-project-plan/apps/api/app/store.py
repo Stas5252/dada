@@ -32,6 +32,7 @@ from app.schemas import (
     ChatMessageRequest,
     Conversation,
     ConversationStatus,
+    Customer,
     KnowledgeChunk,
     KnowledgeIngestionJob,
     KnowledgeIngestionJobStatus,
@@ -46,6 +47,8 @@ from app.schemas import (
     Tenant,
     User,
     VerificationToken,
+    OrderDraft,
+    OrderItem,
 )
 from app.security import PasswordHash, hash_password, issue_access_token, verify_password
 from app.settings import get_settings
@@ -61,6 +64,7 @@ class InMemoryStore:
     ingestion_jobs: dict[UUID, KnowledgeIngestionJob] = field(default_factory=dict)
     conversations: dict[UUID, Conversation] = field(default_factory=dict)
     messages: dict[UUID, Message] = field(default_factory=dict)
+    customers: dict[UUID, Customer] = field(default_factory=dict)
     password_hashes: dict[UUID, PasswordHash] = field(default_factory=dict)
     background_jobs: BackgroundJobBackend = field(default_factory=InlineBackgroundJobBackend)
     auth_sessions: dict[UUID, AuthSession] = field(default_factory=dict)
@@ -68,6 +72,7 @@ class InMemoryStore:
     password_reset_tokens: dict[UUID, PasswordResetToken] = field(default_factory=dict)
     audit_logs: dict[UUID, AuditLog] = field(default_factory=dict)
     api_keys: dict[UUID, ApiKey] = field(default_factory=dict)
+    order_drafts: dict[UUID, OrderDraft] = field(default_factory=dict)
 
     def register(
         self,
@@ -201,6 +206,15 @@ class InMemoryStore:
         if not tenant:
             return None
         updated_tenant = tenant.model_copy(update={"settings": dict(settings)})
+        self.tenants[tenant_id] = updated_tenant
+        return updated_tenant
+
+    def update_tenant_plan(self, tenant_id: UUID, plan: str) -> Tenant | None:
+        tenant = self.get_tenant(tenant_id)
+        if not tenant:
+            return None
+        tenant.plan = plan
+        updated_tenant = tenant.model_copy(update={"plan": plan})
         self.tenants[tenant_id] = updated_tenant
         return updated_tenant
 
@@ -388,6 +402,8 @@ class InMemoryStore:
             updates["max_tokens"] = payload.max_tokens
         if payload.model_name is not None and payload.model_name != agent.model_name:
             updates["model_name"] = payload.model_name
+        if payload.telegram_bot_token is not None and payload.telegram_bot_token != agent.telegram_bot_token:
+            updates["telegram_bot_token"] = payload.telegram_bot_token
 
         if updates:
             updates["version"] = agent.version + 1
@@ -581,11 +597,111 @@ class InMemoryStore:
             return None
         return conversation
 
+    def add_operator_message(
+        self, tenant_id: UUID, conversation_id: UUID, content: str
+    ) -> Message | None:
+        conversation = self.get_conversation(tenant_id, conversation_id)
+        if not conversation:
+            return None
+
+        message = Message(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            role=MessageRole.operator,
+            content=content,
+            source_ids=[],
+        )
+        self.messages[message.id] = message
+
+        self.conversations[conversation_id] = conversation.model_copy(
+            update={"updated_at": datetime.now(UTC)}
+        )
+        return message
+
+    def resolve_conversation(
+        self, tenant_id: UUID, conversation_id: UUID
+    ) -> Conversation | None:
+        conversation = self.get_conversation(tenant_id, conversation_id)
+        if not conversation:
+            return None
+
+        updated = conversation.model_copy(
+            update={
+                "status": ConversationStatus.resolved,
+                "resolution_status": "Resolved by operator",
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self.conversations[conversation_id] = updated
+        return updated
+
+
+    def get_customer(self, tenant_id: UUID, customer_id: UUID) -> Customer | None:
+        customer = self.customers.get(customer_id)
+        if not customer or customer.tenant_id != tenant_id:
+            return None
+        return customer
+
+    def get_customer_by_external_id(
+        self, tenant_id: UUID, channel: str, external_id: str
+    ) -> Customer | None:
+        return next(
+            (
+                c
+                for c in self.customers.values()
+                if c.tenant_id == tenant_id
+                and c.channel == channel
+                and c.external_id == external_id
+            ),
+            None,
+        )
+
+    def create_customer(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        external_id: str,
+        name: str | None = None,
+        phone: str | None = None,
+    ) -> Customer:
+        customer = Customer(
+            tenant_id=tenant_id,
+            channel=channel,
+            external_id=external_id,
+            name=name,
+            phone=phone,
+        )
+        self.customers[customer.id] = customer
+        return customer
+
+    def update_customer(
+        self,
+        tenant_id: UUID,
+        customer_id: UUID,
+        name: str | None = None,
+        phone: str | None = None,
+        tags: list[str] | None = None,
+    ) -> Customer | None:
+        customer = self.customers.get(customer_id)
+        if not customer or customer.tenant_id != tenant_id:
+            return None
+        updates: dict[str, object] = {"updated_at": datetime.now(UTC)}
+        if name is not None:
+            updates["name"] = name
+        if phone is not None:
+            updates["phone"] = phone
+        if tags is not None:
+            updates["tags"] = tags
+        customer = customer.model_copy(update=updates)
+        self.customers[customer.id] = customer
+        return customer
+
     def count_messages(self, tenant_id: UUID) -> int:
         return sum(1 for m in self.messages.values() if m.tenant_id == tenant_id)
 
     def answer_chat(
-        self, tenant_id: UUID, payload: ChatMessageRequest, agent_response_text: str | None = None
+        self, tenant_id: UUID, payload: ChatMessageRequest, agent_response_text: str | None = None,
+        confidence_score: float | None = None,
     ) -> (
         tuple[
             Conversation,
@@ -602,6 +718,8 @@ class InMemoryStore:
             channel=payload.channel,
             customer_text=payload.message,
             agent_response_text=agent_response_text,
+            customer_id=None,
+            confidence_score=confidence_score,
         )
 
     def record_chat_turn(
@@ -612,6 +730,8 @@ class InMemoryStore:
         channel: str,
         customer_text: str,
         agent_response_text: str | None = None,
+        customer_id: UUID | None = None,
+        confidence_score: float | None = None,
     ) -> tuple[Conversation, Message, Message, list[KnowledgeSource]] | None:
         agent = self.agents.get(agent_id)
         if not agent or agent.tenant_id != tenant_id:
@@ -655,6 +775,7 @@ class InMemoryStore:
                 id=conversation_id,
                 tenant_id=tenant_id,
                 agent_id=agent_id,
+                customer_id=customer_id,
                 channel=channel,
                 status=status_value,
                 summary=customer_text[:120],
@@ -674,7 +795,7 @@ class InMemoryStore:
             content=agent_response_text
             if agent_response_text
             else compose_grounded_answer(payload.message, selected_result),
-            confidence=0.86 if selected_source else 0.2,
+            confidence=confidence_score if confidence_score is not None else (0.86 if selected_source else 0.2),
             source_ids=source_ids,
         )
         self.conversations[conversation.id] = conversation
@@ -757,7 +878,84 @@ class InMemoryStore:
         return key
 
     def list_api_keys(self, tenant_id: UUID) -> list[ApiKey]:
-        return [k for k in self.api_keys.values() if k.tenant_id == tenant_id]
+        return [candidate for candidate in self.api_keys.values() if candidate.tenant_id == tenant_id]
+
+    def get_order_draft(self, tenant_id: UUID, conversation_id: UUID) -> OrderDraft | None:
+        for draft in self.order_drafts.values():
+            if draft.tenant_id == tenant_id and draft.conversation_id == conversation_id:
+                return draft
+        return None
+
+    def add_order_item(
+        self, tenant_id: UUID, conversation_id: UUID, product_name: str, quantity: int, price_per_unit: int, product_external_id: str | None = None
+    ) -> OrderDraft:
+        draft = self.get_order_draft(tenant_id, conversation_id)
+        now = datetime.now(UTC)
+        if not draft:
+            draft = OrderDraft(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                status="draft",
+                total_amount=0,
+                created_at=now,
+                updated_at=now,
+                items=[],
+            )
+            self.order_drafts[draft.id] = draft
+        
+        existing_item = next((i for i in draft.items if i.product_name == product_name), None)
+        if existing_item:
+            existing_item.quantity += quantity
+        else:
+            draft.items.append(
+                OrderItem(
+                    id=uuid4(),
+                    order_id=draft.id,
+                    product_name=product_name,
+                    product_external_id=product_external_id,
+                    quantity=quantity,
+                    price_per_unit=price_per_unit,
+                    created_at=now,
+                )
+            )
+        
+        draft.total_amount = sum(i.quantity * i.price_per_unit for i in draft.items)
+        draft.updated_at = now
+        return draft
+
+    def remove_order_item(
+        self, tenant_id: UUID, conversation_id: UUID, product_name: str
+    ) -> OrderDraft | None:
+        draft = self.get_order_draft(tenant_id, conversation_id)
+        if not draft:
+            return None
+            
+        draft.items = [i for i in draft.items if i.product_name != product_name]
+        draft.total_amount = sum(i.quantity * i.price_per_unit for i in draft.items)
+        draft.updated_at = datetime.now(UTC)
+        return draft
+
+    def confirm_order_draft(self, tenant_id: UUID, conversation_id: UUID) -> OrderDraft | None:
+        draft = self.get_order_draft(tenant_id, conversation_id)
+        if not draft:
+            return None
+        
+        draft.status = "confirmed"
+        draft.updated_at = datetime.now(UTC)
+        return draft
+
+    def update_order_draft_checkout_info(
+        self, tenant_id: UUID, conversation_id: UUID, customer_phone: str, delivery_address: str
+    ) -> OrderDraft | None:
+        draft = self.get_order_draft(tenant_id, conversation_id)
+        if not draft:
+            return None
+            
+        draft.customer_phone = customer_phone
+        draft.delivery_address = delivery_address
+        draft.updated_at = datetime.now(UTC)
+        return draft
 
     def revoke_api_key(self, tenant_id: UUID, key_id: UUID) -> bool:
         key = self.api_keys.get(key_id)

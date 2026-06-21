@@ -16,11 +16,12 @@ def get_iiko_adapter() -> LocalIikoAdapter:
     return LocalIikoAdapter()
 
 
-@lru_cache
-def get_telegram_adapter() -> TelegramChannelAdapter:
+@lru_cache(maxsize=100)
+def get_telegram_adapter(bot_token: str | None = None) -> TelegramChannelAdapter:
     from app.settings import get_settings
 
-    return TelegramChannelAdapter(bot_token=get_settings().telegram_bot_token)
+    token = bot_token or get_settings().telegram_bot_token
+    return TelegramChannelAdapter(bot_token=token)
 
 
 @lru_cache
@@ -36,10 +37,12 @@ def get_voice_service() -> VoiceSessionService:
 @lru_cache
 def get_billing_service() -> BillingService:
     from app.settings import get_settings
+
     settings = get_settings()
     if settings.store_backend == "sqlalchemy":
         from app.billing_service import SqlAlchemyBillingLedger
         from app.database import build_engine, build_session_factory
+
         engine = build_engine(settings.database_url)
         session_factory = build_session_factory(engine)
         return BillingService(ledger=SqlAlchemyBillingLedger(session_factory))

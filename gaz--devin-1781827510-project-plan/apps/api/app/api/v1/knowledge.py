@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
 
 from app.api.v1.dependencies import require_tenant_permission
 from app.rbac import Permission
@@ -53,6 +54,29 @@ async def upload_source(
 
     payload = KnowledgeSourceCreateRequest(title=file.filename, source_type="file", content=content)
     return app_store.create_knowledge_source(UUID(tenant_id), payload)
+
+
+class UploadUrlRequest(BaseModel):
+    url: str
+
+@router.post("/upload-url", response_model=KnowledgeSource, status_code=status.HTTP_201_CREATED)
+async def upload_url(
+    payload: UploadUrlRequest,
+    tenant_id: str = Depends(MANAGE_KNOWLEDGE),
+    app_store: AppStore = Depends(get_app_store),
+) -> KnowledgeSource:
+    from app.parsers import parse_url
+    
+    try:
+        content = parse_url(payload.url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    if len(content.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Extracted content is empty")
+
+    source_payload = KnowledgeSourceCreateRequest(title=payload.url, source_type="url", content=content)
+    return app_store.create_knowledge_source(UUID(tenant_id), source_payload)
 
 
 @router.get("/qdrant/contract", response_model=QdrantCollectionContract)

@@ -1,56 +1,60 @@
 import io
+import httpx
+from bs4 import BeautifulSoup
+from pypdf import PdfReader
+import docx
 
-from fastapi import HTTPException
+def parse_pdf(file_bytes: bytes) -> str:
+    """Extract text from a PDF file."""
+    reader = PdfReader(io.BytesIO(file_bytes))
+    text = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text.append(page_text)
+    return "\n\n".join(text)
 
+def parse_docx(file_bytes: bytes) -> str:
+    """Extract text from a DOCX file."""
+    doc = docx.Document(io.BytesIO(file_bytes))
+    text = []
+    for paragraph in doc.paragraphs:
+        if paragraph.text:
+            text.append(paragraph.text)
+    return "\n\n".join(text)
 
-def extract_text_from_pdf(content_bytes: bytes) -> str:
+def parse_url(url: str) -> str:
+    """Extract visible text from a webpage URL."""
     try:
-        from pypdf import PdfReader
+        response = httpx.get(url, timeout=10.0, follow_redirects=True)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.extract()
+            
+        text = soup.get_text(separator="\n")
+        
+        # Clean up whitespace
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = "\n".join(chunk for chunk in chunks if chunk)
+        
+        return text
+    except Exception as e:
+        raise ValueError(f"Failed to extract text from URL {url}: {e}")
 
-        reader = PdfReader(io.BytesIO(content_bytes))
-        text = []
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text.append(page_text)
-        return "\n\n".join(text)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to parse PDF file: {str(exc)}",
-        ) from exc
-
-
-def extract_text_from_docx(content_bytes: bytes) -> str:
-    try:
-        import docx
-
-        doc = docx.Document(io.BytesIO(content_bytes))
-        text = [paragraph.text for paragraph in doc.paragraphs if paragraph.text]
-        return "\n".join(text)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to parse DOCX file: {str(exc)}",
-        ) from exc
-
-
-def extract_text(filename: str, content_bytes: bytes) -> str:
-    ext = filename.lower().split(".")[-1]
-
-    if ext == "pdf":
-        return extract_text_from_pdf(content_bytes)
-    elif ext == "docx":
-        return extract_text_from_docx(content_bytes)
+def extract_text(filename: str, file_bytes: bytes) -> str:
+    """Extract text from a file based on its extension."""
+    ext = filename.lower().split('.')[-1]
+    if ext == 'pdf':
+        return parse_pdf(file_bytes)
+    elif ext in ('docx', 'doc'):
+        return parse_docx(file_bytes)
     else:
-        # Fallback to UTF-8 decoding for txt, md, csv, etc.
+        # Default to UTF-8 decoding for txt, md, csv, etc.
         try:
-            return content_bytes.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Only UTF-8 text, PDF, and DOCX files are supported. "
-                    f"Failed to decode {ext}."
-                ),
-            ) from exc
+            return file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return file_bytes.decode("latin-1")

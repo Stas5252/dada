@@ -34,13 +34,13 @@ def generate_voice_twiml(text: str, gather_action_url: str | None = None) -> str
             f'action="{gather_action_url}" method="POST" speechTimeout="auto">\n'
         )
         twiml += f'    <Say language="ru-RU">{text}</Say>\n'
-        twiml += '  </Gather>\n'
+        twiml += "  </Gather>\n"
         twiml += '  <Say language="ru-RU">Я не услышал вашего ответа. Всего доброго!</Say>\n'
-        twiml += '  <Hangup/>\n'
+        twiml += "  <Hangup/>\n"
     else:
         twiml += f'  <Say language="ru-RU">{text}</Say>\n'
-        twiml += '  <Hangup/>\n'
-    twiml += '</Response>'
+        twiml += "  <Hangup/>\n"
+    twiml += "</Response>"
     return twiml
 
 
@@ -86,15 +86,17 @@ async def trigger_outbound_call(
             except Exception:
                 pass
 
-        log_data.append({
-            "call_sid": call_sid,
-            "tenant_id": tenant_id,
-            "agent_id": agent_id,
-            "to_number": to_number,
-            "from_number": from_number or "+15005550006 (mock)",
-            "webhook_url": webhook_url,
-            "status": "queued"
-        })
+        log_data.append(
+            {
+                "call_sid": call_sid,
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "to_number": to_number,
+                "from_number": from_number or "+15005550006 (mock)",
+                "webhook_url": webhook_url,
+                "status": "queued",
+            }
+        )
 
         with open(OUTBOUND_CALLS_LOG, "w", encoding="utf-8") as f:
             json.dump(log_data, f, ensure_ascii=False, indent=2)
@@ -103,13 +105,10 @@ async def trigger_outbound_call(
 
     # Real Twilio API integration
     try:
-        from twilio.rest import Client  # type: ignore[import-not-found]
+        from twilio.rest import Client  # type: ignore[import-untyped]
+
         client = Client(account_sid, auth_token)
-        call = client.calls.create(
-            to=to_number,
-            from_=from_number,
-            url=webhook_url
-        )
+        call = client.calls.create(to=to_number, from_=from_number, url=webhook_url)
         return str(call.sid)
     except ImportError:
         logger.warning("twilio SDK is not installed. Falling back to simulation.")
@@ -151,12 +150,9 @@ async def trigger_sms_send(
             except Exception:
                 pass
 
-        log_data.append({
-            "tenant_id": tenant_id,
-            "to_number": to_number,
-            "body": body,
-            "status": "sent"
-        })
+        log_data.append(
+            {"tenant_id": tenant_id, "to_number": to_number, "body": body, "status": "sent"}
+        )
 
         with open(SMS_LOG, "w", encoding="utf-8") as f:
             json.dump(log_data, f, ensure_ascii=False, indent=2)
@@ -166,12 +162,9 @@ async def trigger_sms_send(
     # Real Twilio SMS send
     try:
         from twilio.rest import Client
+
         client = Client(account_sid, auth_token)
-        client.messages.create(
-            to=to_number,
-            from_=from_number,
-            body=body
-        )
+        client.messages.create(to=to_number, from_=from_number, body=body)
         return True
     except ImportError:
         logger.warning("twilio SDK is not installed. SMS simulated.")

@@ -51,6 +51,54 @@ async def fetch_iiko_menu(
     return await iiko.fetch_menu(tenant_id=tenant_id)
 
 
+@router.post("/iiko/sync-menu", status_code=status.HTTP_202_ACCEPTED)
+async def sync_iiko_menu_to_rag(
+    tenant_id: str = Depends(MANAGE_INTEGRATIONS),
+    iiko: LocalIikoAdapter = Depends(get_iiko_adapter),
+) -> dict[str, str]:
+    from app.store_factory import get_app_store
+    from uuid import uuid4, UUID
+    
+    # 1. Fetch menu
+    menu_items = await iiko.fetch_menu(tenant_id=tenant_id)
+    
+    # 2. Format to text
+    lines = ["Меню ресторана (iiko):"]
+    for item in menu_items:
+        lines.append(f"- {item.name} (ID: {item.external_id}) - {item.price_minor / 100} руб. Доступно: {'Да' if item.available else 'Нет'}")
+    
+    content = "\n".join(lines)
+    
+    # 3. Create KnowledgeSource in store
+    store = get_app_store()
+    source_id = uuid4()
+    
+    from app.schemas import KnowledgeSource
+    from datetime import datetime, UTC
+    now = datetime.now(UTC)
+    source = KnowledgeSource(
+        id=source_id,
+        tenant_id=UUID(tenant_id),
+        name="iiko Menu Sync",
+        source_type="text",
+        status="processing",
+        created_at=now,
+        updated_at=now,
+    )
+    store.add_knowledge_source(source)
+    
+    # 4. Trigger ingestion job
+    from app.background_jobs import enqueue_job
+    job_id = enqueue_job(
+        "ingest_knowledge_source",
+        tenant_id=tenant_id,
+        source_id=str(source_id),
+        content=content,
+    )
+    
+    return {"status": "accepted", "job_id": job_id, "source_id": str(source_id)}
+
+
 @router.post("/iiko/orders", response_model=IikoOrderResult, status_code=status.HTTP_201_CREATED)
 async def create_iiko_order(
     draft: IikoOrderDraft,

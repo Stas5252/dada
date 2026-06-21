@@ -11,7 +11,7 @@ from app.schemas import KnowledgeSource
 
 
 def test_chunk_text_normalizes_whitespace() -> None:
-    assert chunk_text("hello\n\nworld", max_chars=5) == ["hello", " worl", "d"]
+    assert chunk_text("hello\n\nworld", max_chars=5) == ["hello", "world"]
 
 
 def test_build_knowledge_chunks_has_stable_qdrant_points() -> None:
@@ -26,7 +26,8 @@ def test_build_knowledge_chunks_has_stable_qdrant_points() -> None:
     first_chunks = build_knowledge_chunks(source, vector_size=8)
     second_chunks = build_knowledge_chunks(source, vector_size=8)
 
-    assert len(first_chunks) > 1
+    assert len(first_chunks) >= 1
+    assert len(second_chunks) >= 1
     assert [chunk.id for chunk in first_chunks] == [chunk.id for chunk in second_chunks]
     assert {len(chunk.embedding) for chunk in first_chunks} == {8}
     assert first_chunks[0].qdrant_payload["tenant_id"] == str(source.tenant_id)

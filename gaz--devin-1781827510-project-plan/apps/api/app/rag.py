@@ -30,18 +30,31 @@ def content_hash(content: str) -> str:
 
 
 def chunk_text(content: str, max_chars: int = 1500) -> list[str]:
-    # Better chunking: split by paragraphs, then sentences if too long.
-    # For MVP, just split by max_chars with small overlap.
-    normalized = " ".join(content.split())
-    if not normalized:
+    # Better chunking: split by paragraphs, then combine them to fit max_chars.
+    if not content:
         return []
-    chunks = []
-    start = 0
-    overlap = 200 if max_chars > 200 else 0
-    while start < len(normalized):
-        end = min(start + max_chars, len(normalized))
-        chunks.append(normalized[start:end])
-        start += max_chars - overlap
+        
+    paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return []
+        
+    chunks: list[str] = []
+    current_chunk: list[str] = []
+    current_length = 0
+    
+    for p in paragraphs:
+        p_len = len(p)
+        if current_length + p_len > max_chars and current_chunk:
+            chunks.append("\n\n".join(current_chunk))
+            current_chunk = [p]
+            current_length = p_len
+        else:
+            current_chunk.append(p)
+            current_length += p_len + 2 # +2 for \n\n
+            
+    if current_chunk:
+        chunks.append("\n\n".join(current_chunk))
+        
     return chunks
 
 

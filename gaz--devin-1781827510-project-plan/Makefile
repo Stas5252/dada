@@ -9,17 +9,20 @@ lint:
 	npm run lint
 
 typecheck:
-	cd apps/api && uv run mypy app
-	npm run typecheck
+	cd apps/api && uv run mypy app tests
+	cd apps/web && npm run typecheck
+
+.PHONY: audit
+audit:
+	cd apps/api && uv run bandit -r app
+	cd apps/api && uv run safety check
+	cd apps/web && npm audit --audit-level=moderate
 
 test:
 	cd apps/api && uv run pytest
 
 build:
 	npm run build
-
-audit:
-	npm audit --audit-level=moderate
 
 api-dev:
 	cd apps/api && uv run uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000

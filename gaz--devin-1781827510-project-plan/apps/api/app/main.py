@@ -81,6 +81,21 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
+
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import Response
+
+    class SecureHeadersMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next) -> Response:
+            response = await call_next(request)
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            return response
+
+    app.add_middleware(SecureHeadersMiddleware)
+    
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(tenants_router, prefix="/api/v1")
     app.include_router(agents_router, prefix="/api/v1")

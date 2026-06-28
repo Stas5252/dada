@@ -1,72 +1,166 @@
 # CallForce — Production Deployment Guide
 
-This guide explains how to deploy CallForce on a production VPS (Virtual Private Server) using Docker Compose and Traefik (for automatic HTTPS certificates).
+This guide explains how to deploy CallForce on a production VPS using Docker
+Compose + Traefik (automatic HTTPS via Let's Encrypt), with daily PostgreSQL
+backups, monitoring (Prometheus/Grafana/Alertmanager) and structured logging.
 
 ## Prerequisites
-1. A Linux server (Ubuntu 22.04+ recommended) with at least 4GB RAM.
-2. Docker and Docker Compose installed.
-3. Two DNS A-records pointing to your server's IP address:
-   - `your-domain.com` (for the Web application)
-   - `api.your-domain.com` (for the Backend API)
+
+1. A Linux server (Ubuntu 22.04+ recommended) with **at least 4 GB RAM, 2 vCPU,
+   40 GB SSD**. Voice/GPU workloads need more — see Voice section below.
+2. Docker Engine 24+ and Docker Compose v2 installed.
+3. DNS A-records pointing to your server's public IP for:
+   - `app.callforce.ru` (Next.js web app + marketing site)
+   - `api.callforce.ru` (FastAPI backend)
+   - `grafana.callforce.ru` (Grafana, optional)
+4. Ports **80 + 443** open inbound (Traefik needs :80 for the ACME TLS
+   challenge; all real traffic is redirected to :443).
 
 ## 1. Setup
 
-Clone the repository to your server:
 ```bash
-git clone https://github.com/your-org/callforce.git
+git clone https://github.com/Stas5252/dada.git callforce
 cd callforce
 ```
 
-Create the `.env` file from the example:
+Create the production env file **from the production template** (not the local
+one — local `.env.example` keeps `STORE_BACKEND=memory` and demo seeds on):
+
 ```bash
-cp .env.example .env
+cp .env.prod.example .env
 nano .env
 ```
-Make sure to fill in the following:
-- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- `OPENAI_API_KEY`
-- `SECRET_KEY` (Generate a secure random string)
-- `NEXT_PUBLIC_API_URL` (Set to `https://api.your-domain.com`)
 
-## 2. Configure Traefik and Let's Encrypt
+You MUST replace every `__REPLACE_WITH_*__` placeholder. Generate secrets:
 
-Create an empty file for Traefik to store certificates securely:
+```bash
+# 64-char hex secrets (ACCESS_TOKEN_SECRET, JWT_SECRET, WEBHOOK_SIGNING_SECRET)
+openssl rand -hex 32
+
+# Fernet key for ENCRYPTION_KEY (used by app/encryption.py)
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Strong Postgres / Grafana password
+openssl rand -base64 24
+```
+
+Set the domains (`APP_DOMAIN`, `API_DOMAIN`, `GRAFANA_DOMAIN`, `ACME_EMAIL`).
+
+Pick an LLM provider (`LLM_PROVIDER=openai` with a key, or `LLM_PROVIDER=local`
+with `VLLM_BASE_URL`).
+
+## 2. Prepare Let's Encrypt storage
+
 ```bash
 mkdir -p infra/letsencrypt
 touch infra/letsencrypt/acme.json
 chmod 600 infra/letsencrypt/acme.json
 ```
 
-Edit `infra/docker-compose.yml` to replace the domain names:
-1. Uncomment the Let's Encrypt email lines under the `traefik` service and add your actual email.
-2. Replace `api.your-domain.com` with your actual API domain.
-3. Replace `your-domain.com` with your actual Web domain.
-
 ## 3. Launch
 
-Navigate to the infra directory and run docker-compose:
 ```bash
 cd infra
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-Docker will build the Next.js frontend and FastAPI backend, and launch Postgres, Redis, and Qdrant. Traefik will automatically provision SSL certificates for your domains via Let's Encrypt.
+The `api` container runs `alembic upgrade head` before starting Uvicorn, so the
+PostgreSQL schema is migrated automatically on every deploy.
+
+Traefik provisions TLS certificates for each domain on first request.
 
 ## 4. Verify
 
-Check the logs to ensure everything started smoothly:
 ```bash
-docker-compose logs -f
+# All services healthy
+docker compose ps
+
+# Backend
+curl https://api.callforce.ru/health
+curl https://api.callforce.ru/api/v1/readiness   # shows store_backend=sqlalchemy
+
+# Web
+curl -I https://app.callforce.ru
+
+# Grafana (login: admin / GRAFANA_PASSWORD)
+open https://grafana.callforce.ru/dashboards   # "CallForce API Overview" auto-provisioned
 ```
 
-- Navigate to `https://your-domain.com` to see the Web application.
-- Navigate to `https://api.your-domain.com/health` to see the API status.
+## 5. Backups (automatic + manual)
 
-## Scaling and Maintenance
-- **Database Backups**: Use `pg_dump` on the `postgres` container to periodically back up your tenants and agents.
-- **Qdrant**: Vector storage data is saved in the `qdrant-data` docker volume.
+A `postgres-backup` container takes a daily gzipped dump and keeps:
+- 14 daily, 4 weekly, 6 monthly snapshots in `infra/backups/`.
 
-## Observability & Monitoring
-- **Grafana**: A pre-configured Grafana instance is deployed alongside the app. Access it at `https://grafana.your-domain.com`. The default login is `admin` / `GRAFANA_PASSWORD` (from `.env`).
-- **Prometheus**: Prometheus scrapes metrics from the FastAPI backend at `/metrics`. Grafana is auto-provisioned to use this as a data source.
-- **Sentry**: To monitor errors in production, integrate Sentry by setting `SENTRY_DSN` in the backend and `NEXT_PUBLIC_SENTRY_DSN` in the frontend `.env`.
+Manual backup / restore drill:
+
+```bash
+# Create a one-off backup now
+docker compose exec postgres pg_dump -U callforce callforce | gzip > infra/backups/manual-$(date +%F).sql.gz
+
+# Restore drill (against a throwaway DB — never against production)
+DRILL_DATABASE_URL=postgresql://drill:drill@127.0.0.1:5433/drill \
+  ./scripts/backup-restore-drill.sh infra/backups/manual-$(date +%F).sql.gz
+```
+
+Validate a backup is restorable at least once a month. See
+`docs/runbooks/backup-restore.md`.
+
+## 6. Monitoring & alerting
+
+| Signal | Where |
+| --- | --- |
+| API p50/p95 latency, error rate, RPS | Grafana → "CallForce API Overview" |
+| Per-service `up` | Prometheus / Alertmanager |
+| 5xx > 5% for 2m | `HighApiErrorRate` alert |
+| p95 > 2s for 2m | `HighApiLatency` alert |
+| Any target down 1m | `InstanceDown` alert |
+| App exceptions | Sentry (`SENTRY_DSN`) |
+
+Wire Alertmanager to a real receiver (Slack/Telegram/email) by editing
+`infra/alertmanager/alertmanager.yml`.
+
+## 7. Updating
+
+```bash
+cd infra
+git pull
+docker compose up -d --build          # rebuilds images, re-runs migrations
+docker compose logs -f api            # watch startup
+```
+
+Rollback:
+
+```bash
+# Revert code
+git checkout <previous-commit>
+docker compose up -d --build
+# Restore DB if a migration must be reverted
+gunzip -c infra/backups/<file>.sql.gz | docker compose exec -T postgres psql -U callforce callforce
+```
+
+## 8. Staging
+
+Deploy the same `infra/docker-compose.yml` on a second server with
+`APP_ENV=staging`, separate DNS (`staging.callforce.ru`), a separate
+`POSTGRES_DB=callforce_staging`, and `SEED_DEMO_DATA=true`. Never share secrets
+or DBs between staging and production.
+
+## 9. Voice / GPU workloads (optional)
+
+Asterisk + a local STT/TTS GPU server are heavier and not required for chat-only
+tenants. Run them on a separate host with a GPU (e.g. A10) and point
+`ASTERISK_ARI_URL` / `VLLM_BASE_URL` at it from the API host. See
+`docs/runbooks/voice-realtime.md`.
+
+## Troubleshooting
+
+- **Traefik can't get a certificate**: confirm port 80 is reachable from the
+  internet and DNS resolves before you bring the stack up. Check
+  `docker compose logs traefik`.
+- **`api` restart-loops**: usually a missing/weak `ACCESS_TOKEN_SECRET`. The app
+  refuses to boot in production with the default secret.
+- **`store_backend=memory` in readiness**: the api container didn't receive
+  `STORE_BACKEND=sqlalchemy`. Confirm `.env` is mounted and the compose project
+  is `infra/`.
+- **Out of disk**: `docker compose exec postgres vacuumdb --all -z` and prune
+  old `infra/backups/`.

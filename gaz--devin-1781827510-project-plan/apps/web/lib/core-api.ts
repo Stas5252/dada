@@ -62,6 +62,17 @@ export type CoreMfaSetupResponse = {
   secret: string;
 };
 
+export type CoreAuditLog = {
+  id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  event_type: string;
+  ip_address: string | null;
+  details: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CoreMfaRecoveryCodesResponse = {
   codes: string[];
   remaining: number;
@@ -74,6 +85,13 @@ export type CoreDashboardResponse = {
   knowledge_sources_total: number;
   tenant: CoreTenant;
   unresolved_topics_total: number;
+};
+
+export type CoreBillingStatus = {
+  plan: string;
+  messages_used: number;
+  messages_limit: number;
+  conversations_used: number;
 };
 
 export type CoreAgent = {
@@ -92,6 +110,11 @@ export type CoreAgent = {
   temperature: number;
   max_tokens: number;
   model_name: string;
+}
+
+export type CorePathway = {
+  nodes: Record<string, unknown>[] | null;
+  edges: Record<string, unknown>[] | null;
 };
 
 export type CoreKnowledgeSource = {
@@ -195,6 +218,49 @@ export type CoreReadinessResponse = {
   status: "ready" | "degraded";
   store_backend: string;
 };
+
+export type CoreChannelBreakdown = {
+  channel: string;
+  count: number;
+};
+
+export type CoreDailyConversation = {
+  date: string;
+  count: number;
+};
+
+export type CoreUnresolvedTopic = {
+  question: string;
+  count: number;
+  last_seen: string;
+};
+
+export type CoreAnalyticsOverview = {
+  total_conversations: number;
+  resolved: number;
+  escalated: number;
+  open: number;
+  automation_rate: number;
+  total_agents: number;
+  active_agents: number;
+  total_knowledge_sources: number;
+  total_messages: number;
+  avg_messages_per_conversation: number;
+  conversations_by_channel: CoreChannelBreakdown[];
+  conversations_by_day: CoreDailyConversation[];
+  top_unresolved: CoreUnresolvedTopic[];
+};
+
+export type CoreAgentStats = {
+  agent_id: string;
+  agent_name: string;
+  status: string;
+  total_conversations: number;
+  resolved: number;
+  escalated: number;
+  automation_rate: number;
+};
+
 
 const CORE_API_PREFIX = "api/v1";
 const LOCAL_DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001";
@@ -577,6 +643,61 @@ export async function uploadCoreApi<T>(
       state: "error",
       path,
       message: `Не удалось выполнить Core API upload: ${message}.`,
+    };
+  }
+}
+
+export async function deleteCoreApiNoContent(
+  path: string,
+): Promise<CoreApiMutationResult<null>> {
+  assertServerRuntime();
+
+  const baseUrl = getCoreApiBaseUrl();
+
+  if (!baseUrl) {
+    return {
+      state: "error",
+      path,
+      message: "NEXT_PUBLIC_API_URL не задан, live mutation не выполнена.",
+    };
+  }
+
+  try {
+    const token = await getAccessToken();
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(buildCoreApiUrl(baseUrl, path), {
+      cache: "no-store",
+      headers,
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      return {
+        state: "error",
+        path,
+        message: `Core API вернул ${response.status}.`,
+      };
+    }
+
+    return {
+      data: null,
+      path,
+      state: "live",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Неизвестная ошибка API";
+
+    return {
+      state: "error",
+      path,
+      message: `Не удалось выполнить Core API delete: ${message}.`,
     };
   }
 }

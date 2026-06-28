@@ -44,24 +44,29 @@ class LLMRouter:
         messages: list[dict[str, str]],
         strategy: RoutingStrategy = RoutingStrategy.BALANCED,
         tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
+        tenant_settings: dict[str, Any] | None = None,
     ) -> tuple[str, list[Any] | None]:
-        provider = self._select_provider(messages, strategy)
+        provider = self._select_provider(messages, strategy, tenant_settings=tenant_settings)
         logger.info("Routing LLM request to provider: %s", provider.value)
 
         if provider == LLMProvider.LOCAL_VLLM:
-            return await self._call_local_vllm(system_prompt, messages, tools=tools)
+            return await self._call_local_vllm(system_prompt, messages, tools=tools, max_tokens=max_tokens)
         if provider == LLMProvider.OPENAI:
-            return await self._call_openai(system_prompt, messages, strategy, tools=tools)
+            return await self._call_openai(system_prompt, messages, strategy, tools=tools, max_tokens=max_tokens, tenant_settings=tenant_settings)
         return self._mock_generation(messages), None
 
     def _select_provider(
         self,
         messages: list[dict[str, str]],
         strategy: RoutingStrategy,
+        tenant_settings: dict[str, Any] | None = None,
     ) -> LLMProvider:
         provider_preference = self._setting("llm_provider", "auto").lower()
         has_local = bool(self._setting("vllm_base_url"))
-        has_openai = self._openai_client is not None
+        
+        tenant_openai_key = tenant_settings.get("openai_api_key") if tenant_settings else None
+        has_openai = bool(tenant_openai_key) or self._openai_client is not None
 
         if provider_preference in {"mock", "test"}:
             return LLMProvider.MOCK
@@ -93,8 +98,18 @@ class LLMRouter:
         messages: list[dict[str, str]],
         strategy: RoutingStrategy = RoutingStrategy.BALANCED,
         tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
+        tenant_settings: dict[str, Any] | None = None,
     ) -> tuple[str, list[Any] | None]:
-        if not self._openai_client:
+        tenant_openai_key = tenant_settings.get("openai_api_key") if tenant_settings else None
+        
+        client = None
+        if tenant_openai_key:
+            client = openai.AsyncClient(api_key=tenant_openai_key, timeout=self._timeout_seconds)
+        else:
+            client = self._openai_client
+
+        if not client:
             return self._mock_generation(messages), None
 
         model = (
@@ -103,12 +118,13 @@ class LLMRouter:
             else self._setting("openai_fast_model", DEFAULT_OPENAI_FAST_MODEL)
         )
         return await self._call_openai_compatible(
-            client=self._openai_client,
+            client=client,
             model=model,
             system_prompt=system_prompt,
             messages=messages,
             fallback_label=f"OpenAI {model}",
             tools=tools,
+            max_tokens=max_tokens,
         )
 
     async def _call_local_vllm(
@@ -116,6 +132,7 @@ class LLMRouter:
         system_prompt: str,
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
     ) -> tuple[str, list[Any] | None]:
         base_url = self._setting("vllm_base_url")
         if not base_url:
@@ -133,6 +150,7 @@ class LLMRouter:
             messages=messages,
             fallback_label="local vLLM",
             tools=tools,
+            max_tokens=max_tokens,
         )
 
     async def _call_openai_compatible(
@@ -144,13 +162,14 @@ class LLMRouter:
         messages: list[dict[str, str]],
         fallback_label: str,
         tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
     ) -> tuple[str, list[Any] | None]:
         try:
             api_messages = self._api_messages(system_prompt, messages)
             kwargs: dict[str, Any] = {
                 "model": model,
                 "messages": api_messages,
-                "max_tokens": self._max_tokens,
+                "max_tokens": max_tokens or self._max_tokens,
                 "temperature": self._temperature,
             }
             if tools:
@@ -187,7 +206,12 @@ class LLMRouter:
         messages: list[dict[str, str]],
     ) -> list[dict[str, str]]:
         api_messages = [{"role": "system", "content": system_prompt}]
-        api_messages.extend(message for message in messages if message.get("role") != "system")
+        is_first = True
+        for message in messages:
+            if is_first and message.get("role") == "system" and message.get("content") == system_prompt:
+                is_first = False
+                continue
+            api_messages.append(message)
         return api_messages
 
     def _mock_generation(self, messages: list[dict[str, str]]) -> str:

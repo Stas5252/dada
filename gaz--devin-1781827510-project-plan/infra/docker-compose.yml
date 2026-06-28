@@ -9,8 +9,14 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      #- "--certificatesresolvers.myresolver.acme.email=admin@your-domain.com"
-      #- "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.myresolver.acme.email=${ACME_EMAIL:-admin@your-domain.com}"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addentrypoints=true"
+      - "--metrics.prometheus.addservices=true"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
     ports:
       - "80:80"
       - "443:443"
@@ -38,7 +44,15 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   qdrant:
     image: qdrant/qdrant:v1.12.4
@@ -54,12 +68,17 @@ services:
     env_file:
       - ../.env
     environment:
+      APP_ENV: "${APP_ENV:-production}"
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-callforce}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/${POSTGRES_DB:-callforce}"
+      STORE_BACKEND: "sqlalchemy"
       QDRANT_URL: "http://qdrant:6333"
       REDIS_URL: "redis://redis:6379/0"
+      RATE_LIMIT_STORAGE_URI: "redis://redis:6379/1"
+      SEED_DEMO_DATA: "${SEED_DEMO_DATA:-false}"
+      ALLOW_LEGACY_TENANT_HEADER: "false"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.api.rule=Host(`api.your-domain.com`)"
+      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN:-api.your-domain.com}`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=myresolver"
       - "traefik.http.services.api.loadbalancer.server.port=8000"
@@ -67,7 +86,7 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
         condition: service_started
     restart: unless-stopped
@@ -82,10 +101,10 @@ services:
     env_file:
       - ../.env
     environment:
-      NEXT_PUBLIC_API_URL: "https://api.your-domain.com"
+      NEXT_PUBLIC_API_URL: "https://${API_DOMAIN:-api.your-domain.com}"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.web.rule=Host(`your-domain.com`, `www.your-domain.com`)"
+      - "traefik.http.routers.web.rule=Host(`${APP_DOMAIN:-your-domain.com}`, `www.${APP_DOMAIN:-your-domain.com}`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=myresolver"
       - "traefik.http.services.web.loadbalancer.server.port=3000"
@@ -98,10 +117,22 @@ services:
     container_name: prometheus
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
     restart: unless-stopped
 
   grafana:
@@ -110,12 +141,13 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`grafana.your-domain.com`)"
+      - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_DOMAIN:-grafana.your-domain.com}`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
       - "traefik.http.routers.grafana.tls.certresolver=myresolver"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
@@ -123,8 +155,30 @@ services:
       - prometheus
     restart: unless-stopped
 
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:16-alpine
+    container_name: postgres-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-callforce}
+      POSTGRES_USER: ${POSTGRES_USER:-callforce}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecret}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 14
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      BACKUP_SUFFIX: ".sql.gz"
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ./backups:/backups
+
 volumes:
   postgres-data:
+  redis-data:
   qdrant-data:
   prometheus-data:
   grafana-data:

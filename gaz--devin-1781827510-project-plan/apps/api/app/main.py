@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.agents import router as agents_router
+from app.api.v1.audit import router as audit_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.billing import router as billing_router
 from app.api.v1.conversations import router as conversations_router
@@ -28,6 +29,9 @@ def _rate_limit_exceeded_handler(request: Request, exc: Exception) -> JSONRespon
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    from app.logging_setup import setup_logging
+    setup_logging(settings.app_env)
+
     cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 
     # Security: block startup if default secret is used in production
@@ -48,23 +52,28 @@ def create_app() -> FastAPI:
         )
 
     if settings.sentry_dsn:
+        is_prod = settings.app_env in ("production", "staging")
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
+            traces_sample_rate=0.1 if is_prod else 1.0,
+            profiles_sample_rate=0.1 if is_prod else 1.0,
             environment=settings.app_env,
         )
 
-    from contextlib import asynccontextmanager
     import asyncio
-    
+    from collections.abc import AsyncIterator
+    from contextlib import asynccontextmanager
+
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        from app.asterisk_ari_service import get_asterisk_ari_service
-        ari_service = get_asterisk_ari_service()
-        task = asyncio.create_task(ari_service.run())
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        task = None
+        if settings.asterisk_ari_username and settings.asterisk_ari_password:
+            from app.asterisk_ari_service import get_asterisk_ari_service
+            ari_service = get_asterisk_ari_service()
+            task = asyncio.create_task(ari_service.run())
         yield
-        task.cancel()
+        if task is not None:
+            task.cancel()
 
     app = FastAPI(
         title="CallForce API",
@@ -73,6 +82,9 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+    from app.tracing import setup_tracing
+    setup_tracing(app, settings)
+
     from slowapi.errors import RateLimitExceeded
     from slowapi.middleware import SlowAPIMiddleware
 
@@ -82,12 +94,15 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
 
+    from typing import Any
+
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.responses import Response
 
     class SecureHeadersMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next) -> Response:
+        async def dispatch(self, request: Request, call_next: Any) -> Response:
             response = await call_next(request)
+            assert isinstance(response, Response)
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "DENY"
@@ -95,11 +110,12 @@ def create_app() -> FastAPI:
             return response
 
     app.add_middleware(SecureHeadersMiddleware)
-    
+
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(tenants_router, prefix="/api/v1")
     app.include_router(agents_router, prefix="/api/v1")
     app.include_router(knowledge_router, prefix="/api/v1")
+    app.include_router(audit_router, prefix="/api/v1")
     app.include_router(conversations_router, prefix="/api/v1")
     app.include_router(integrations_router, prefix="/api/v1")
     app.include_router(voice_router, prefix="/api/v1")
@@ -118,10 +134,10 @@ def create_app() -> FastAPI:
     app.include_router(api_keys_router, prefix="/api/v1")
     from app.api.v1.widget import router as widget_router
     app.include_router(widget_router, prefix="/api/v1")
-    
+
     from app.api.v1.vk import router as vk_router
     app.include_router(vk_router, prefix="/api/v1")
-    
+
     from app.api.v1.whatsapp import router as whatsapp_router
     app.include_router(whatsapp_router, prefix="/api/v1")
     app.add_middleware(TenantContextMiddleware)
@@ -133,7 +149,18 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router, prefix="/api/v1")
+    from app.api.v1.demo import router as demo_router
+    app.include_router(demo_router, prefix="/api/v1")
     
+    from app.api.v1.testbed import router as testbed_router
+    app.include_router(testbed_router, prefix="/api/v1")
+
+    from app.api.v1.admin import router as admin_router
+    app.include_router(admin_router, prefix="/api/v1")
+
+    from app.api.v1.operator_ws import router as operator_ws_router
+    app.include_router(operator_ws_router, prefix="/api/v1")
+
     from prometheus_fastapi_instrumentator import Instrumentator
     Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzip=True)
 

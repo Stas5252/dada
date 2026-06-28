@@ -1,20 +1,21 @@
+from uuid import UUID, uuid4
+
 import pytest
-from uuid import uuid4
-from datetime import datetime, UTC
-from sqlalchemy.orm import sessionmaker, Session
-from app.sqlalchemy_store import SqlAlchemyStore
-from app.db_models import OrderDraftModel, OrderItemModel, Base
 from sqlalchemy import create_engine
-from app.schemas import Tenant
+from sqlalchemy.orm import sessionmaker
+
+from app.db_models import Base
+from app.settings import Settings
+from app.sqlalchemy_store import SqlAlchemyStore
+
 
 @pytest.fixture
-def store():
+def store_and_ids() -> tuple[SqlAlchemyStore, UUID, UUID]:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
-    class FakeSettings:
-        pass
-    store = SqlAlchemyStore(session_factory, FakeSettings())
+    settings = Settings(database_url="sqlite:///:memory:")
+    store = SqlAlchemyStore(session_factory, settings)
     
     # Create tenant for foreign keys
     tenant_id = uuid4()
@@ -22,7 +23,6 @@ def store():
         from app.db_models import TenantModel
         session.add(TenantModel(id=str(tenant_id), name="Test", status="active", plan="free", settings={}))
         session.commit()
-    store.test_tenant_id = tenant_id
     
     # Create conversation
     conversation_id = uuid4()
@@ -32,13 +32,12 @@ def store():
         session.add(AgentModel(id=str(agent_id), tenant_id=str(tenant_id), name="Test", prompt="", status="active", channel="web", version=1, voice_id="", voice_language=""))
         session.add(ConversationModel(id=str(conversation_id), tenant_id=str(tenant_id), agent_id=str(agent_id), channel="web", status="active", summary="", resolution_status="open"))
         session.commit()
-    store.test_conversation_id = conversation_id
     
-    return store
+    return store, tenant_id, conversation_id
 
-def test_add_remove_confirm_order_items(store):
-    tenant_id = store.test_tenant_id
-    conversation_id = store.test_conversation_id
+
+def test_add_remove_confirm_order_items(store_and_ids: tuple[SqlAlchemyStore, UUID, UUID]) -> None:
+    store, tenant_id, conversation_id = store_and_ids
     
     # Assert get on empty
     draft = store.get_order_draft(tenant_id, conversation_id)
@@ -66,6 +65,7 @@ def test_add_remove_confirm_order_items(store):
     
     # Remove item
     draft = store.remove_order_item(tenant_id, conversation_id, "Pizza")
+    assert draft is not None
     assert len(draft.items) == 1
     assert draft.items[0].product_name == "Cola"
     assert draft.total_amount == 150
@@ -78,4 +78,5 @@ def test_add_remove_confirm_order_items(store):
     
     # Confirm
     draft = store.confirm_order_draft(tenant_id, conversation_id)
+    assert draft is not None
     assert draft.status == "confirmed"

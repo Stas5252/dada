@@ -42,14 +42,8 @@ function buildWidgetChatUrl(agentId: string) {
 export function ChatWidget() {
   const agentId = process.env.NEXT_PUBLIC_WIDGET_AGENT_ID?.trim() ?? "";
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "Здравствуйте! Я AI-агент CallForce. Чем могу помочь?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState("");
@@ -66,7 +60,34 @@ export function ChatWidget() {
       localStorage.setItem(`cf_widget_session_${agentId}`, sid);
     }
     setSessionId(sid);
+
+    const storedMessages = localStorage.getItem(`cf_widget_messages_${agentId}`);
+    if (storedMessages) {
+      try {
+        const parsed = JSON.parse(storedMessages);
+        setMessages(parsed.map((m: { id: string; role: "user" | "assistant"; content: string; timestamp: string }) => ({ ...m, timestamp: new Date(m.timestamp) })));
+        setIsInitialized(true);
+        return;
+      } catch (e) {
+        console.error("Failed to parse stored messages", e);
+      }
+    }
+    setMessages([
+      {
+        id: "welcome",
+        role: "assistant",
+        content: "Здравствуйте! Я AI-агент CallForce. Чем могу помочь?",
+        timestamp: new Date(),
+      },
+    ]);
+    setIsInitialized(true);
   }, [agentId]);
+
+  useEffect(() => {
+    if (isInitialized && agentId) {
+      localStorage.setItem(`cf_widget_messages_${agentId}`, JSON.stringify(messages));
+    }
+  }, [messages, agentId, isInitialized]);
 
   useEffect(() => {
     if (isOpen) {

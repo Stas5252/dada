@@ -31,3 +31,15 @@ export async function resolveConversationAction(conversationId: string) {
 
   return { error: result.message || "Failed to resolve conversation" };
 }
+
+export async function handoffConversationAction(conversationId: string) {
+  const result = await mutateCoreApi(`/api/v1/conversations/${conversationId}/handoff`, {});
+
+  if (result.state === "live") {
+    revalidatePath(`/conversations/${conversationId}`);
+    revalidatePath("/conversations");
+    return { success: true };
+  }
+
+  return { error: result.message || "Failed to escalate conversation" };
+}

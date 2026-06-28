@@ -1,6 +1,8 @@
 import base64
 import hashlib
+
 from cryptography.fernet import Fernet, InvalidToken
+
 
 def _get_fernet(secret: str) -> Fernet:
     """

@@ -1,11 +1,12 @@
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from app.channels import ChannelType, OutboundMessage
-from app.channels.whatsapp_adapter import WhatsAppChannelAdapter, parse_whatsapp_update
+from app.channels.whatsapp_adapter import parse_whatsapp_update
 from app.orchestrator import AgentOrchestrator
+from app.service_factory import get_whatsapp_adapter
 from app.settings import Settings, get_settings
 from app.store_factory import AppStore, get_app_store
 
@@ -52,11 +53,32 @@ async def whatsapp_webhook_receive(
     """
     try:
         update = await request.json()
+        if not isinstance(update, dict):
+            raise ValueError("Expected JSON dictionary")
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON") from exc
 
     tenant_uuid = UUID(tenant_id)
     tenant = app_store.get_tenant(tenant_uuid)
+    if not tenant:
+        return {"status": "ok"}
+        
+    wa_app_secret = tenant.settings.get("whatsapp_app_secret")
+    if not wa_app_secret:
+        raise HTTPException(status_code=403, detail="WhatsApp channel not fully configured")
+        
+    signature = request.headers.get("x-hub-signature-256")
+    if signature:
+        import hashlib
+        import hmac
+        body_bytes = await request.body()
+        expected_sig = "sha256=" + hmac.new(
+            str(wa_app_secret).encode("utf-8"), body_bytes, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected_sig, signature):
+            raise HTTPException(status_code=403, detail="Invalid signature")
+    elif wa_app_secret and not signature:
+        raise HTTPException(status_code=403, detail="Missing signature")
     if not tenant:
         return {"status": "ok"}
 
@@ -71,7 +93,7 @@ async def whatsapp_webhook_receive(
     if not isinstance(wa_token, str) or not wa_token or not isinstance(wa_phone_id, str) or not wa_phone_id:
         return {"status": "ok"}
 
-    wa = WhatsAppChannelAdapter(access_token=wa_token, phone_number_id=wa_phone_id)
+    wa = get_whatsapp_adapter(access_token=wa_token, phone_number_id=wa_phone_id)
 
     # Parse into normalized MessageEvents
     events = parse_whatsapp_update(update)

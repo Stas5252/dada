@@ -1,12 +1,20 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from app.api.v1.dependencies import require_tenant_permission
+from app.channels import ChannelType, OutboundMessage
+from app.channels.telegram_adapter import TelegramChannelAdapter
 from app.orchestrator import AgentOrchestrator
 from app.rbac import Permission
-from app.channels import ChannelType, OutboundMessage
-from app.schemas import ChatMessageRequest, ChatMessageResponse, Conversation, ConversationDetail, Message
+from app.schemas import (
+    ChatMessageRequest,
+    ChatMessageResponse,
+    Conversation,
+    ConversationDetail,
+    Message,
+)
 from app.service_factory import get_telegram_adapter
 from app.settings import Settings, get_settings
 from app.store_factory import AppStore, get_app_store
@@ -56,11 +64,10 @@ async def mock_chat(
     # 1. Ask orchestrator for dynamic response
     orchestrator = AgentOrchestrator(store=app_store, settings=settings)
 
-    # Generate a temporary conversation id for orchestrator context.
-    # Mock chat currently creates a new conversation each time.
+    # Use provided conversation_id or generate a new one
     from uuid import uuid4
 
-    conversation_id = uuid4()
+    conversation_id = payload.conversation_id if payload.conversation_id else uuid4()
 
     orchestrator_result = await orchestrator.process_message(
         tenant_id=UUID(tenant_id),
@@ -89,13 +96,9 @@ async def mock_chat(
     )
 
 
-from pydantic import BaseModel
-
 class OperatorMessageRequest(BaseModel):
     content: str
 
-
-from app.channels.telegram_adapter import TelegramChannelAdapter
 
 @router.post("/conversations/{conversation_id}/messages", response_model=Message)
 async def send_operator_message(
@@ -135,6 +138,18 @@ async def resolve_conversation(
     app_store: AppStore = Depends(get_app_store),
 ) -> Conversation:
     conversation = app_store.resolve_conversation(UUID(tenant_id), conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+@router.post("/conversations/{conversation_id}/handoff", response_model=Conversation)
+async def handoff_conversation(
+    conversation_id: UUID,
+    tenant_id: str = Depends(MANAGE_CHAT),
+    app_store: AppStore = Depends(get_app_store),
+) -> Conversation:
+    conversation = app_store.escalate_conversation(UUID(tenant_id), conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation

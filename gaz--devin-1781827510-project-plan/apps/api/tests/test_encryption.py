@@ -1,5 +1,6 @@
 from app.encryption import decrypt_token, encrypt_token
 
+
 def test_encryption_roundtrip():
     secret = "my-super-secret-key-123!"
     plain_token = "123456789:ABCDEF-abcdef-123456"

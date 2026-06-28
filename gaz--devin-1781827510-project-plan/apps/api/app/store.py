@@ -11,7 +11,7 @@ from app.demo_data import (
     build_demo_owner,
     build_demo_tenant,
 )
-from app.jobs import BackgroundJobBackend, InlineBackgroundJobBackend
+from app.jobs import BackgroundJobBackend, InlineBackgroundJobBackend, ThreadedBackgroundJobBackend
 from app.rag import (
     build_knowledge_chunks,
     build_qdrant_collection_contract,
@@ -41,14 +41,18 @@ from app.schemas import (
     KnowledgeSourceStatus,
     Message,
     MessageRole,
+    OrderDraft,
+    OrderItem,
     PasswordResetToken,
     QdrantCollectionContract,
     RegisterRequest,
     Tenant,
+    TestCase,
+    TestCaseCreate,
+    TestCaseStatus,
+    TestRun,
     User,
     VerificationToken,
-    OrderDraft,
-    OrderItem,
 )
 from app.security import PasswordHash, hash_password, issue_access_token, verify_password
 from app.settings import get_settings
@@ -66,13 +70,23 @@ class InMemoryStore:
     messages: dict[UUID, Message] = field(default_factory=dict)
     customers: dict[UUID, Customer] = field(default_factory=dict)
     password_hashes: dict[UUID, PasswordHash] = field(default_factory=dict)
-    background_jobs: BackgroundJobBackend = field(default_factory=InlineBackgroundJobBackend)
+    background_jobs: BackgroundJobBackend = field(default_factory=ThreadedBackgroundJobBackend)
     auth_sessions: dict[UUID, AuthSession] = field(default_factory=dict)
     verification_tokens: dict[UUID, VerificationToken] = field(default_factory=dict)
     password_reset_tokens: dict[UUID, PasswordResetToken] = field(default_factory=dict)
     audit_logs: dict[UUID, AuditLog] = field(default_factory=dict)
     api_keys: dict[UUID, ApiKey] = field(default_factory=dict)
     order_drafts: dict[UUID, OrderDraft] = field(default_factory=dict)
+    test_cases: dict[UUID, TestCase] = field(default_factory=dict)
+    test_runs: dict[UUID, TestRun] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        import sys
+        settings = get_settings()
+        if settings.app_env == "test" or "pytest" in sys.modules:
+            self.background_jobs = InlineBackgroundJobBackend()
+        else:
+            self.background_jobs = ThreadedBackgroundJobBackend()
 
     def register(
         self,
@@ -197,6 +211,9 @@ class InMemoryStore:
             update={"revoked_at": now, "updated_at": now}
         )
         return True
+
+    def list_all_tenants(self) -> list[Tenant]:
+        return list(self.tenants.values())
 
     def get_tenant(self, tenant_id: UUID) -> Tenant | None:
         return self.tenants.get(tenant_id)
@@ -344,6 +361,10 @@ class InMemoryStore:
         self.audit_logs[audit_log.id] = audit_log
         return audit_log
 
+    def list_audit_logs(self, tenant_id: UUID) -> list[AuditLog]:
+        logs = [log for log in self.audit_logs.values() if log.tenant_id == tenant_id]
+        return sorted(logs, key=lambda x: x.created_at, reverse=True)
+
     def create_agent(self, tenant_id: UUID, payload: AgentCreateRequest) -> Agent:
         agent = Agent(
             tenant_id=tenant_id,
@@ -356,6 +377,8 @@ class InMemoryStore:
             temperature=payload.temperature,
             max_tokens=payload.max_tokens,
             model_name=payload.model_name,
+            pathway_nodes=payload.pathway_nodes,
+            pathway_edges=payload.pathway_edges,
         )
         self.agents[agent.id] = agent
         return agent
@@ -404,6 +427,10 @@ class InMemoryStore:
             updates["model_name"] = payload.model_name
         if payload.telegram_bot_token is not None and payload.telegram_bot_token != agent.telegram_bot_token:
             updates["telegram_bot_token"] = payload.telegram_bot_token
+        if payload.pathway_nodes is not None and payload.pathway_nodes != agent.pathway_nodes:
+            updates["pathway_nodes"] = payload.pathway_nodes
+        if payload.pathway_edges is not None and payload.pathway_edges != agent.pathway_edges:
+            updates["pathway_edges"] = payload.pathway_edges
 
         if updates:
             updates["version"] = agent.version + 1
@@ -446,6 +473,14 @@ class InMemoryStore:
         return [
             source for source in self.knowledge_sources.values() if source.tenant_id == tenant_id
         ]
+
+    def get_knowledge_source(
+        self, tenant_id: UUID, source_id: UUID
+    ) -> KnowledgeSource | None:
+        source = self.knowledge_sources.get(source_id)
+        if source is None or source.tenant_id != tenant_id:
+            return None
+        return source
 
     def qdrant_collection_contract(self) -> QdrantCollectionContract:
         settings = get_settings()
@@ -543,6 +578,7 @@ class InMemoryStore:
                     "updated_at": datetime.now(UTC),
                 }
             )
+            raise exc
 
     def list_conversations(
         self,
@@ -635,6 +671,38 @@ class InMemoryStore:
         self.conversations[conversation_id] = updated
         return updated
 
+    def escalate_conversation(
+        self, tenant_id: UUID, conversation_id: UUID
+    ) -> Conversation | None:
+        conversation = self.get_conversation(tenant_id, conversation_id)
+        if not conversation:
+            return None
+
+        updated = conversation.model_copy(
+            update={
+                "status": ConversationStatus.escalated,
+                "resolution_status": "Escalated to human operator",
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self.conversations[conversation_id] = updated
+        return updated
+
+    def update_conversation_summary(
+        self, tenant_id: UUID, conversation_id: UUID, summary: str
+    ) -> Conversation | None:
+        conversation = self.get_conversation(tenant_id, conversation_id)
+        if not conversation:
+            return None
+
+        updated = conversation.model_copy(
+            update={
+                "summary": summary,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self.conversations[conversation_id] = updated
+        return updated
 
     def get_customer(self, tenant_id: UUID, customer_id: UUID) -> Customer | None:
         customer = self.customers.get(customer_id)
@@ -696,8 +764,11 @@ class InMemoryStore:
         self.customers[customer.id] = customer
         return customer
 
-    def count_messages(self, tenant_id: UUID) -> int:
-        return sum(1 for m in self.messages.values() if m.tenant_id == tenant_id)
+    def count_messages(self, tenant_id: UUID, since: datetime | None = None) -> int:
+        return sum(
+            1 for m in self.messages.values()
+            if m.tenant_id == tenant_id and (since is None or m.created_at >= since)
+        )
 
     def answer_chat(
         self, tenant_id: UUID, payload: ChatMessageRequest, agent_response_text: str | None = None,
@@ -736,6 +807,15 @@ class InMemoryStore:
         agent = self.agents.get(agent_id)
         if not agent or agent.tenant_id != tenant_id:
             return None
+
+        # Visual Pathway Graph interpretation fallback
+        if agent_response_text is None:
+            previous_messages = [m for m in self.messages.values() if m.conversation_id == conversation_id]
+            from app.scenario_engine import interpret_pathway
+            pathway_response = interpret_pathway(agent, previous_messages, customer_text)
+            if pathway_response:
+                agent_response_text = pathway_response
+
         payload = ChatMessageRequest(agent_id=agent_id, channel=channel, message=customer_text)
         sources = self.list_knowledge_sources(tenant_id)
         settings = get_settings()
@@ -963,6 +1043,51 @@ class InMemoryStore:
             self.api_keys[key_id] = key.model_copy(update={"revoked_at": datetime.now(UTC)})
             return True
         return False
+
+    def create_test_case(self, tenant_id: UUID, agent_id: UUID, payload: TestCaseCreate) -> TestCase:
+        test_case = TestCase(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name=payload.name,
+            scenario=payload.scenario,
+            expected_outcome=payload.expected_outcome,
+        )
+        self.test_cases[test_case.id] = test_case
+        return test_case
+
+    def list_test_cases(self, tenant_id: UUID, agent_id: UUID) -> list[TestCase]:
+        return [tc for tc in self.test_cases.values() if tc.tenant_id == tenant_id and tc.agent_id == agent_id]
+
+    def get_test_case(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID) -> TestCase | None:
+        tc = self.test_cases.get(test_case_id)
+        if tc and tc.tenant_id == tenant_id and tc.agent_id == agent_id:
+            return tc
+        return None
+
+    def create_test_run(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID) -> TestRun:
+        test_run = TestRun(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            test_case_id=test_case_id,
+            status=TestCaseStatus.running,
+            logs=[],
+        )
+        self.test_runs[test_run.id] = test_run
+        return test_run
+
+    def update_test_run(self, tenant_id: UUID, agent_id: UUID, test_run_id: UUID, status: TestCaseStatus, logs: list[dict[str, object]], result_summary: str | None = None) -> TestRun | None:
+        tr = self.test_runs.get(test_run_id)
+        if not tr or tr.tenant_id != tenant_id or tr.agent_id != agent_id:
+            return None
+        updated = tr.model_copy(update={"status": status, "logs": logs, "result_summary": result_summary, "updated_at": datetime.now(UTC)})
+        self.test_runs[test_run_id] = updated
+        return updated
+        
+    def list_test_runs(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID | None = None) -> list[TestRun]:
+        res = [tr for tr in self.test_runs.values() if tr.tenant_id == tenant_id and tr.agent_id == agent_id]
+        if test_case_id:
+            res = [tr for tr in res if tr.test_case_id == test_case_id]
+        return sorted(res, key=lambda x: x.created_at, reverse=True)
 
 
 store = InMemoryStore()

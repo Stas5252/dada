@@ -9,6 +9,7 @@ dependencies = [
     "alembic==1.18.4",
     "email-validator==2.2.0",
     "fastapi==0.115.6",
+    "aiohttp>=3.9.0",
     "httpx>=0.27.0",
     "limits[redis]>=5.8.0",
     "openai>=2.43.0",
@@ -26,6 +27,15 @@ dependencies = [
     "uvicorn[standard]==0.34.0",
     "cryptography>=49.0.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
+    "beautifulsoup4>=4.12.0",
+    "yookassa>=3.0.0",
+    "netaddr>=1.3.0",
+    "jsonschema>=4.21.0",
+    "opentelemetry-api>=1.22.0",
+    "opentelemetry-sdk>=1.22.0",
+    "opentelemetry-instrumentation-fastapi>=0.43b0",
+    "sentence-transformers>=3.0.0",
+    "tenacity>=9.0.0",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +65,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "app/api/**/*.py" = ["B008"]
@@ -63,6 +74,20 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "yookassa.*",
+    "yookassa",
+    "netaddr.*",
+    "netaddr"
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

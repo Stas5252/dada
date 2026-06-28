@@ -10,6 +10,7 @@ import {
   revokeRefreshToken,
   uploadCoreApi,
   getCoreTenantId,
+  deleteCoreApiNoContent,
   type CoreAgent,
   type CoreChatMessageResponse,
   type CoreKnowledgeIngestionJob,
@@ -474,6 +475,7 @@ export async function updateTenantSettingsAction(formData: FormData) {
     redirect(noticePath("/dashboard", "auth-error"));
   }
 
+  const openai_api_key = textValue(formData, "openai_api_key");
   const telegram_bot_token = textValue(formData, "telegram_bot_token");
   const twilio_account_sid = textValue(formData, "twilio_account_sid");
   const twilio_auth_token = textValue(formData, "twilio_auth_token");
@@ -484,14 +486,18 @@ export async function updateTenantSettingsAction(formData: FormData) {
   const sip_provider = textValue(formData, "sip_provider");
   const sip_login = textValue(formData, "sip_login");
   const sip_password = textValue(formData, "sip_password");
-  
+
   const whatsapp_token = textValue(formData, "whatsapp_token");
   const whatsapp_phone_number_id = textValue(formData, "whatsapp_phone_number_id");
   const whatsapp_verify_token = textValue(formData, "whatsapp_verify_token");
   const vk_group_token = textValue(formData, "vk_group_token");
   const vk_confirmation_code = textValue(formData, "vk_confirmation_code");
+  const iiko_api_login = textValue(formData, "iiko_api_login");
+  const iiko_organization_id = textValue(formData, "iiko_organization_id");
+  const iiko_terminal_group_id = textValue(formData, "iiko_terminal_group_id");
 
   const settings = {
+    openai_api_key,
     telegram_bot_token,
     twilio_account_sid,
     twilio_auth_token,
@@ -507,6 +513,9 @@ export async function updateTenantSettingsAction(formData: FormData) {
     whatsapp_verify_token,
     vk_group_token,
     vk_confirmation_code,
+    iiko_api_login,
+    iiko_organization_id,
+    iiko_terminal_group_id,
   };
 
   const result = await mutateCoreApi<Record<string, object>>(`/api/v1/tenants/${tenantId}/settings`, {
@@ -541,11 +550,23 @@ export async function connectTelegramAction(formData: FormData) {
 }
 
 export async function triggerOutboundCallAction(formData: FormData) {
-  const agentId = textValue(formData, "agent_id");
+  let agentId = textValue(formData, "agent_id");
   const toNumber = textValue(formData, "to_number");
+  const returnTo = textValue(formData, "return_to") || "/dashboard";
 
-  if (!agentId || !toNumber) {
-    redirect(noticePath("/dashboard", "call-invalid"));
+  if (!toNumber) {
+    redirect(noticePath(returnTo, "call-invalid"));
+  }
+
+  if (!agentId) {
+    const { fetchCoreApi } = await import("../lib/core-api");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const agentsResult = await fetchCoreApi<any[]>("/api/v1/agents");
+    if (agentsResult.state === "live" && agentsResult.data && agentsResult.data.length > 0) {
+      agentId = agentsResult.data[0].id;
+    } else {
+      agentId = "389a4f13-05d3-5860-af9f-69bd9ce2493a";
+    }
   }
 
   const result = await mutateCoreApi<{ call_sid: string; status: string }>("/api/v1/voice/calls/outbound", {
@@ -554,8 +575,140 @@ export async function triggerOutboundCallAction(formData: FormData) {
   });
 
   if (result.state === "live") {
-    redirect(noticePath("/dashboard", "call-initiated"));
+    redirect(noticePath(returnTo, "call-initiated"));
   }
 
-  redirect(noticePath("/dashboard", "call-error"));
+  redirect(noticePath(returnTo, "call-error"));
+}
+
+export async function createApiKeyAction(formData: FormData) {
+  const name = textValue(formData, "name");
+  const scopesVal = textValue(formData, "scopes") || "read,write";
+  const scopes = scopesVal.split(",");
+
+  if (!name) {
+    redirect(noticePath("/settings/api-keys", "key-invalid"));
+  }
+
+  const result = await mutateCoreApi<{ id: string; key: string; name: string }>(
+    "/api/v1/api-keys",
+    { name, scopes }
+  );
+
+  if (result.state === "live") {
+    redirect(`/settings/api-keys?notice=key-created&new_key=${result.data.key}&new_name=${result.data.name}`);
+  }
+
+  redirect(noticePath("/settings/api-keys", "key-error"));
+}
+
+export async function revokeApiKeyAction(formData: FormData) {
+  const keyId = textValue(formData, "key_id");
+
+  if (!keyId) {
+    redirect(noticePath("/settings/api-keys", "key-revoke-invalid"));
+  }
+
+  const result = await deleteCoreApiNoContent(`/api/v1/api-keys/${keyId}`);
+
+  if (result.state === "live") {
+    redirect(noticePath("/settings/api-keys", "key-revoked"));
+  }
+
+  redirect(noticePath("/settings/api-keys", "key-revoke-error"));
+}
+
+export async function inviteTeamMemberAction(formData: FormData) {
+  const email = textValue(formData, "email");
+  const name = textValue(formData, "name");
+  const role = textValue(formData, "role") || "viewer";
+
+  if (!email || !name) {
+    redirect(noticePath("/settings/team", "invite-invalid"));
+  }
+
+  const result = await mutateCoreApi<{ message: string }>("/api/v1/team/invite", {
+    email,
+    name,
+    role,
+  });
+
+  if (result.state === "live") {
+    redirect(`/settings/team?notice=member-invited&invite_msg=${encodeURIComponent(result.data.message)}`);
+  }
+
+  redirect(noticePath("/settings/team", "invite-error"));
+}
+
+export async function updateTeamMemberRoleAction(formData: FormData) {
+  const memberId = textValue(formData, "member_id");
+  const role = textValue(formData, "role");
+
+  if (!memberId || !role) {
+    redirect(noticePath("/settings/team", "role-invalid"));
+  }
+
+  const result = await patchCoreApi(`/api/v1/team/members/${memberId}/role`, {
+    role,
+  });
+
+  if (result.state === "live") {
+    redirect(noticePath("/settings/team", "role-updated"));
+  }
+
+  redirect(noticePath("/settings/team", "role-error"));
+}
+
+export async function removeTeamMemberAction(formData: FormData) {
+  const memberId = textValue(formData, "member_id");
+
+  if (!memberId) {
+    redirect(noticePath("/settings/team", "remove-invalid"));
+  }
+
+  const result = await deleteCoreApiNoContent(`/api/v1/team/members/${memberId}`);
+
+  if (result.state === "live") {
+    redirect(noticePath("/settings/team", "member-removed"));
+  }
+
+  redirect(noticePath("/settings/team", "remove-error"));
+}
+
+
+export async function getAgentPathwayAction(agentId: string) {
+  const { fetchCoreApi } = await import("../lib/core-api");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await fetchCoreApi<{ nodes: any[]; edges: any[] }>(`/api/v1/agents/${agentId}/pathway`);
+  if (result.state === "live") {
+    return { success: true, data: result.data };
+  }
+  return { success: false, error: result.message || "Failed to load pathway" };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function saveAgentPathwayAction(agentId: string, nodes: any[], edges: any[]) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await mutateCoreApi<{ nodes: any[]; edges: any[] }>(`/api/v1/agents/${agentId}/pathway`, {
+    nodes,
+    edges,
+  });
+  if (result.state === "live") {
+    return { success: true, data: result.data };
+  }
+  return { success: false, error: result.message || "Failed to save pathway" };
+}
+
+export async function sendVoicePreviewMessageAction(agentId: string, message: string, sessionId: string) {
+  const result = await mutateCoreApi<{ response_text: string; conversation_id: string }>(
+    `/api/v1/voice/sessions/${encodeURIComponent(sessionId)}/preview-turn`,
+    {
+      agent_id: agentId,
+      text: message,
+    }
+  );
+  if (result.state === "live") {
+    return { success: true, response_text: result.data.response_text || "" };
+  }
+  return { success: false, error: result.message || "Failed to process turn" };
 }

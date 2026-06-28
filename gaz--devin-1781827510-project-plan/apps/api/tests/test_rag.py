@@ -23,13 +23,13 @@ def test_build_knowledge_chunks_has_stable_qdrant_points() -> None:
         content="First answer. " * 150,
     )
 
-    first_chunks = build_knowledge_chunks(source, vector_size=8)
-    second_chunks = build_knowledge_chunks(source, vector_size=8)
+    first_chunks = build_knowledge_chunks(source)
+    second_chunks = build_knowledge_chunks(source)
 
     assert len(first_chunks) >= 1
     assert len(second_chunks) >= 1
     assert [chunk.id for chunk in first_chunks] == [chunk.id for chunk in second_chunks]
-    assert {len(chunk.embedding) for chunk in first_chunks} == {8}
+    assert {len(chunk.embedding) for chunk in first_chunks} == {384}
     assert first_chunks[0].qdrant_payload["tenant_id"] == str(source.tenant_id)
 
 

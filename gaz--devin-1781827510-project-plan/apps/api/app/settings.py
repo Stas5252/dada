@@ -21,11 +21,16 @@ class Settings(BaseSettings):
         default="callforce_knowledge_chunks",
         alias="QDRANT_COLLECTION_NAME",
     )
-    qdrant_vector_size: int = Field(default=1536, alias="QDRANT_VECTOR_SIZE")
+    qdrant_vector_size: int = Field(default=384, alias="QDRANT_VECTOR_SIZE")
     qdrant_distance: str = Field(default="Cosine", alias="QDRANT_DISTANCE")
     llm_provider: str = Field(default="auto", alias="LLM_PROVIDER")
     llm_max_tokens: int = Field(default=1024, alias="LLM_MAX_TOKENS")
     llm_temperature: float = Field(default=0.3, alias="LLM_TEMPERATURE")
+    # Feature Flags
+    enable_voice_agents: bool = Field(default=True, alias="ENABLE_VOICE_AGENTS")
+    enable_whatsapp_channel: bool = Field(default=True, alias="ENABLE_WHATSAPP_CHANNEL")
+
+
     llm_timeout_seconds: float = Field(default=30.0, alias="LLM_TIMEOUT_SECONDS")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_fast_model: str = Field(default="gpt-4o-mini", alias="OPENAI_FAST_MODEL")
@@ -36,7 +41,7 @@ class Settings(BaseSettings):
     )
     access_token_ttl_minutes: int = Field(default=15, alias="ACCESS_TOKEN_TTL_MINUTES")
     refresh_token_ttl_days: int = Field(default=30, alias="REFRESH_TOKEN_TTL_DAYS")
-    store_backend: str = Field(default="memory", alias="STORE_BACKEND")
+    store_backend: str = Field(default="sqlalchemy", alias="STORE_BACKEND")
     allow_legacy_tenant_header: bool = Field(
         default=False,
         alias="ALLOW_LEGACY_TENANT_HEADER",
@@ -64,6 +69,11 @@ class Settings(BaseSettings):
     cors_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000",
         alias="CORS_ORIGINS",
+    )
+    otel_enabled: bool = Field(default=False, alias="OTEL_ENABLED")
+    otel_exporter_otlp_endpoint: str = Field(
+        default="http://localhost:4317",
+        alias="OTEL_EXPORTER_OTLP_ENDPOINT",
     )
 
     # SMTP

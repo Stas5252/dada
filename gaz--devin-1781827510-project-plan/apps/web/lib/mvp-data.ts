@@ -8,6 +8,9 @@ import {
   type CoreKnowledgeIngestionJob,
   type CoreKnowledgeSource,
   type CoreReadinessResponse,
+  type CoreAnalyticsOverview,
+  type CoreAgentStats,
+  type CorePathway,
 } from "./core-api";
 
 export type ApiState = "live" | "mock" | "empty" | "error";
@@ -76,6 +79,8 @@ export type KnowledgeSource = {
   documents: number;
   coverageScore: number;
   updatedAt: string;
+  content?: string;
+  chunkCount?: number;
 };
 
 export type KnowledgeIngestionJob = {
@@ -599,6 +604,8 @@ function mapKnowledgeSource(source: CoreKnowledgeSource): KnowledgeSource {
     documents: source.chunk_count,
     coverageScore: sourceCoverageScore(source),
     updatedAt: formatDateTime(source.updated_at),
+    content: source.content,
+    chunkCount: source.chunk_count,
   };
 }
 
@@ -805,6 +812,13 @@ export function getAgent(agentId: string): Promise<ApiResult<Agent | null>> {
   return fetchMappedCoreData(path, fallback, mapAgent);
 }
 
+export function getKnowledgeSource(sourceId: string): Promise<ApiResult<KnowledgeSource | null>> {
+  const path = `/api/v1/knowledge/sources/${sourceId}`;
+  const fallback = knowledgeSources.find((source) => source.id === sourceId) ?? null;
+
+  return fetchMappedCoreData(path, fallback, mapKnowledgeSource);
+}
+
 export function getKnowledgeSources(): Promise<ApiResult<KnowledgeSource[]>> {
   return fetchMappedCoreData("/api/v1/knowledge/sources", knowledgeSources, (payload: CoreKnowledgeSource[]) =>
     payload.map(mapKnowledgeSource),
@@ -831,3 +845,96 @@ export function getConversationDetail(conversationId: string): Promise<ApiResult
 
   return fetchMappedCoreData(path, fallback, mapConversationDetail);
 }
+
+export type ChannelBreakdown = {
+  channel: string;
+  count: number;
+};
+
+export type DailyConversation = {
+  date: string;
+  count: number;
+};
+
+export type UnresolvedTopic = {
+  question: string;
+  count: number;
+  last_seen: string;
+};
+
+export type AnalyticsOverview = {
+  total_conversations: number;
+  resolved: number;
+  escalated: number;
+  open: number;
+  automation_rate: number;
+  total_agents: number;
+  active_agents: number;
+  total_knowledge_sources: number;
+  total_messages: number;
+  avg_messages_per_conversation: number;
+  conversations_by_channel: ChannelBreakdown[];
+  conversations_by_day: DailyConversation[];
+  top_unresolved: UnresolvedTopic[];
+};
+
+export type AgentStats = {
+  agent_id: string;
+  agent_name: string;
+  status: string;
+  total_conversations: number;
+  resolved: number;
+  escalated: number;
+  automation_rate: number;
+};
+
+const analyticsOverviewFallback: AnalyticsOverview = {
+  total_conversations: 42,
+  resolved: 36,
+  escalated: 4,
+  open: 2,
+  automation_rate: 85.7,
+  total_agents: 3,
+  active_agents: 2,
+  total_knowledge_sources: 5,
+  total_messages: 128,
+  avg_messages_per_conversation: 3.0,
+  conversations_by_channel: [
+    { channel: "telegram", count: 25 },
+    { channel: "web_widget", count: 12 },
+    { channel: "voice", count: 5 },
+  ],
+  conversations_by_day: Array.from({ length: 30 }, (_, i) => ({
+    date: new Date(Date.now() - (29 - i) * 86400000).toISOString().slice(0, 10),
+    count: Math.floor(Math.random() * 5),
+  })),
+  top_unresolved: [
+    { question: "Как вернуть товар по гарантии?", count: 3, last_seen: new Date().toISOString() },
+    { question: "Есть ли доставка в регионы?", count: 2, last_seen: new Date().toISOString() },
+  ],
+};
+
+export function getAnalyticsOverview(): Promise<ApiResult<AnalyticsOverview>> {
+  return fetchMappedCoreData(
+    "/api/v1/analytics/overview",
+    analyticsOverviewFallback,
+    (payload: CoreAnalyticsOverview) => payload,
+  );
+}
+
+export function getAnalyticsAgents(): Promise<ApiResult<AgentStats[]>> {
+  return fetchMappedCoreData(
+    "/api/v1/analytics/agents",
+    [],
+    (payload: CoreAgentStats[]) => payload,
+  );
+}
+
+export function getAgentPathway(id: string): Promise<ApiResult<CorePathway>> {
+  return fetchMappedCoreData(
+    `/api/v1/agents/${id}/pathway`,
+    { nodes: [], edges: [] },
+    (payload: CorePathway) => payload,
+  );
+}
+

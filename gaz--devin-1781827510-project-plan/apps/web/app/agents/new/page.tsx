@@ -28,13 +28,14 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
       }
     >
       <ActionNotice notice={notice} />
-      <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden p-6 max-w-2xl">
+      <section className="glass-panel premium-border p-8 max-w-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
         <form action={createAgentAction} className="space-y-6">
           <div className="grid sm:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Название</label>
               <input
-                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                 name="name"
                 placeholder="Например, Restaurant Support RU"
                 required
@@ -44,7 +45,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Основной канал</label>
               <select
-                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors appearance-none"
+                className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner appearance-none"
                 defaultValue="telegram"
                 name="channel"
               >
@@ -57,7 +58,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             <div className="sm:col-span-2 space-y-2">
               <label className="text-sm font-medium text-zinc-300">Цель агента</label>
               <textarea
-                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors resize-y"
+                className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
                 name="goal"
                 placeholder="Например: отвечать на FAQ, помогать с доставкой и передавать сложные кейсы оператору."
                 rows={3}
@@ -70,7 +71,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-zinc-400">ID Голоса</label>
                   <select
-                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                     defaultValue="alloy"
                     name="voice_id"
                   >
@@ -86,7 +87,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-zinc-400">Язык</label>
                   <select
-                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                     defaultValue="ru"
                     name="voice_language"
                   >
@@ -103,7 +104,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
                     step="0.1"
                     min="0.5"
                     max="2.0"
-                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                     name="voice_speed"
                     defaultValue="1.0"
                     required
@@ -118,7 +119,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-zinc-400">Модель LLM</label>
                   <select
-                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                     defaultValue="gpt-4o-mini"
                     name="model_name"
                   >
@@ -134,7 +135,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
                     step="0.1"
                     min="0.0"
                     max="2.0"
-                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                     name="temperature"
                     defaultValue="0.3"
                     required
@@ -147,7 +148,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
                     type="number"
                     min="100"
                     max="4000"
-                    className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
                     name="max_tokens"
                     defaultValue="1024"
                     required
@@ -159,7 +160,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             <div className="sm:col-span-2 space-y-2 border-t border-white/5 pt-4">
               <label className="text-sm font-medium text-zinc-300">System prompt</label>
               <textarea
-                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors resize-y"
+                className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
                 name="prompt"
                 placeholder="Ты AI-оператор ресторана. Отвечай коротко, используй только подтвержденные источники, не изменяй заказ без явного подтверждения клиента."
                 required
@@ -170,7 +171,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">LLM policy</label>
               <select
-                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors appearance-none font-medium"
+                className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner appearance-none font-medium"
                 defaultValue="safe-rag"
                 name="policy"
               >
@@ -182,7 +183,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Knowledge source</label>
               <select
-                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors appearance-none font-medium"
+                className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner appearance-none font-medium"
                 defaultValue="ks-menu-faq"
                 name="knowledgeSourceId"
               >
@@ -192,7 +193,7 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             </div>
           </div>
 
-          <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium">
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 text-primary text-sm font-medium">
             Сохранение идет через live Core API и появится в списке агентов tenant-а.
           </div>
 

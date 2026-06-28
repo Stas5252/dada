@@ -24,6 +24,8 @@ from app.db_models import (
     OrderItemModel,
     PasswordResetTokenModel,
     TenantModel,
+    TestCaseModel,
+    TestRunModel,
     UserModel,
     VerificationTokenModel,
 )
@@ -35,6 +37,7 @@ from app.demo_data import (
     build_demo_owner,
     build_demo_tenant,
 )
+from app.jobs import BackgroundJobBackend, InlineBackgroundJobBackend, ThreadedBackgroundJobBackend
 from app.rag import (
     build_knowledge_chunks,
     build_qdrant_collection_contract,
@@ -61,17 +64,20 @@ from app.schemas import (
     KnowledgeIngestionJobStatus,
     KnowledgeSource,
     KnowledgeSourceCreateRequest,
-    OrderDraft,
-    OrderItem,
-    PasswordResetToken,
     KnowledgeSourceStatus,
     Message,
     MessageRole,
+    OrderDraft,
+    OrderItem,
     PasswordResetToken,
     QdrantCollectionContract,
     RegisterRequest,
     Tenant,
     TenantStatus,
+    TestCase,
+    TestCaseCreate,
+    TestCaseStatus,
+    TestRun,
     User,
     VerificationToken,
 )
@@ -83,6 +89,12 @@ class SqlAlchemyStore:
     def __init__(self, session_factory: sessionmaker[Session], settings: Settings) -> None:
         self.session_factory = session_factory
         self.settings = settings
+        self.background_jobs: BackgroundJobBackend
+        import sys
+        if settings.app_env == "test" or "pytest" in sys.modules:
+            self.background_jobs = InlineBackgroundJobBackend()
+        else:
+            self.background_jobs = ThreadedBackgroundJobBackend()
 
     def register(
         self,
@@ -231,6 +243,11 @@ class SqlAlchemyStore:
             current_model.revoked_at = now
             current_model.updated_at = now
             return True
+
+    def list_all_tenants(self) -> list[Tenant]:
+        with self.session_factory() as session:
+            models = session.query(TenantModel).all()
+            return [self._tenant_from_model(m) for m in models]
 
     def get_tenant(self, tenant_id: UUID) -> Tenant | None:
         with self.session_factory() as session:
@@ -406,6 +423,27 @@ class SqlAlchemyStore:
             )
         return audit_log
 
+    def list_audit_logs(self, tenant_id: UUID) -> list[AuditLog]:
+        with self.session_factory() as session:
+            models = session.scalars(
+                select(AuditLogModel)
+                .where(AuditLogModel.tenant_id == str(tenant_id))
+                .order_by(AuditLogModel.created_at.desc())
+            ).all()
+            return [
+                AuditLog(
+                    id=UUID(m.id),
+                    tenant_id=UUID(m.tenant_id) if m.tenant_id else None,
+                    user_id=UUID(m.user_id) if m.user_id else None,
+                    event_type=m.event_type,
+                    ip_address=m.ip_address,
+                    details=m.details,
+                    created_at=_timestamp(m.created_at),
+                    updated_at=_timestamp(m.created_at),
+                )
+                for m in models
+            ]
+
     def create_agent(self, tenant_id: UUID, payload: AgentCreateRequest) -> Agent:
         agent = Agent(
             tenant_id=tenant_id,
@@ -418,6 +456,8 @@ class SqlAlchemyStore:
             temperature=payload.temperature,
             max_tokens=payload.max_tokens,
             model_name=payload.model_name,
+            pathway_nodes=payload.pathway_nodes,
+            pathway_edges=payload.pathway_edges,
         )
         with self._session_scope() as session:
             session.add(
@@ -435,6 +475,8 @@ class SqlAlchemyStore:
                     temperature=agent.temperature,
                     max_tokens=agent.max_tokens,
                     model_name=agent.model_name,
+                    pathway_nodes=agent.pathway_nodes,
+                    pathway_edges=agent.pathway_edges,
                 )
             )
         return agent
@@ -497,6 +539,18 @@ class SqlAlchemyStore:
                 and payload.telegram_bot_token != getattr(agent_model, "telegram_bot_token", None)
             ):
                 agent_model.telegram_bot_token = payload.telegram_bot_token
+                changed = True
+            if (
+                payload.pathway_nodes is not None
+                and payload.pathway_nodes != getattr(agent_model, "pathway_nodes", None)
+            ):
+                agent_model.pathway_nodes = payload.pathway_nodes
+                changed = True
+            if (
+                payload.pathway_edges is not None
+                and payload.pathway_edges != getattr(agent_model, "pathway_edges", None)
+            ):
+                agent_model.pathway_edges = payload.pathway_edges
                 changed = True
 
             if changed:
@@ -607,11 +661,11 @@ class SqlAlchemyStore:
                 status=KnowledgeIngestionJobStatus.queued,
                 idempotency_key=idempotency_key,
                 qdrant_collection=contract.collection_name,
-                background_backend="inline-sqlalchemy",
+                background_backend=self.background_jobs.backend_name,
                 chunk_count=0,
             )
             session.add(job_model)
-        self.run_knowledge_ingestion(job_id)
+        self.background_jobs.submit(job_id, lambda: self.run_knowledge_ingestion(job_id))
         return self.get_ingestion_job(tenant_id, job_id)
 
     def get_ingestion_job(
@@ -626,37 +680,48 @@ class SqlAlchemyStore:
             return self._ingestion_job_from_model(job_model)
 
     def run_knowledge_ingestion(self, job_id: UUID) -> None:
-        with self._session_scope() as session:
-            job_model = session.get(KnowledgeIngestionJobModel, str(job_id))
-            if job_model is None:
-                return
-            job_model.status = KnowledgeIngestionJobStatus.running
-            source_model = session.get(KnowledgeSourceModel, job_model.source_id)
-            if source_model is None:
-                job_model.status = KnowledgeIngestionJobStatus.failed
-                job_model.error_message = "knowledge source not found"
-                return
-            source = self._knowledge_source_from_model(source_model)
-            chunks = build_knowledge_chunks(source, self.settings.qdrant_vector_size)
-            for chunk in chunks:
-                session.merge(
-                    KnowledgeChunkModel(
-                        id=chunk.id,
-                        tenant_id=str(chunk.tenant_id),
-                        source_id=str(chunk.source_id),
-                        chunk_index=chunk.chunk_index,
-                        content=chunk.content,
-                        content_hash=chunk.content_hash,
-                        embedding=chunk.embedding,
-                        qdrant_payload=chunk.qdrant_payload,
+        try:
+            with self._session_scope() as session:
+                job_model = session.get(KnowledgeIngestionJobModel, str(job_id))
+                if job_model is None:
+                    return
+                job_model.status = KnowledgeIngestionJobStatus.running
+                source_model = session.get(KnowledgeSourceModel, job_model.source_id)
+                if source_model is None:
+                    job_model.status = KnowledgeIngestionJobStatus.failed
+                    job_model.error_message = "knowledge source not found"
+                    return
+                source = self._knowledge_source_from_model(source_model)
+                chunks = build_knowledge_chunks(source, self.settings.qdrant_vector_size)
+                for chunk in chunks:
+                    session.merge(
+                        KnowledgeChunkModel(
+                            id=chunk.id,
+                            tenant_id=str(chunk.tenant_id),
+                            source_id=str(chunk.source_id),
+                            chunk_index=chunk.chunk_index,
+                            content=chunk.content,
+                            content_hash=chunk.content_hash,
+                            embedding=chunk.embedding,
+                            qdrant_payload=chunk.qdrant_payload,
+                        )
                     )
-                )
-            # Push the batch of chunks to Qdrant
-            upsert_chunks_to_qdrant(chunks, job_model.qdrant_collection)
-            source_model.status = KnowledgeSourceStatus.indexed
-            source_model.chunk_count = len(chunks)
-            job_model.status = KnowledgeIngestionJobStatus.completed
-            job_model.chunk_count = len(chunks)
+                # Push the batch of chunks to Qdrant
+                upsert_chunks_to_qdrant(chunks, job_model.qdrant_collection)
+                source_model.status = KnowledgeSourceStatus.indexed
+                source_model.chunk_count = len(chunks)
+                job_model.status = KnowledgeIngestionJobStatus.completed
+                job_model.chunk_count = len(chunks)
+        except Exception as exc:
+            with self._session_scope() as session:
+                job_model = session.get(KnowledgeIngestionJobModel, str(job_id))
+                if job_model:
+                    job_model.status = KnowledgeIngestionJobStatus.failed
+                    job_model.error_message = str(exc)
+                    source_model = session.get(KnowledgeSourceModel, job_model.source_id)
+                    if source_model:
+                        source_model.status = KnowledgeSourceStatus.failed
+            raise exc
 
     def get_customer(self, tenant_id: UUID, customer_id: UUID) -> Customer | None:
         with self.session_factory() as session:
@@ -740,16 +805,14 @@ class SqlAlchemyStore:
             conversation_models = session.scalars(stmt).all()
             return [self._conversation_from_model(model) for model in conversation_models]
 
-    def count_messages(self, tenant_id: UUID) -> int:
+    def count_messages(self, tenant_id: UUID, since: datetime | None = None) -> int:
         with self.session_factory() as session:
-            return (
-                session.scalar(
-                    select(func.count(MessageModel.id)).where(
-                        MessageModel.tenant_id == str(tenant_id)
-                    )
-                )
-                or 0
+            stmt = select(func.count(MessageModel.id)).where(
+                MessageModel.tenant_id == str(tenant_id)
             )
+            if since is not None:
+                stmt = stmt.where(MessageModel.created_at >= since)
+            return session.scalar(stmt) or 0
 
     def add_chat_message(
         self,
@@ -850,6 +913,19 @@ class SqlAlchemyStore:
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None:
             return None
+
+        # Visual Pathway Graph interpretation fallback
+        if agent_response_text is None:
+            with self.session_factory() as session:
+                message_models = session.scalars(
+                    select(MessageModel).where(MessageModel.conversation_id == str(conversation_id))
+                ).all()
+                previous_messages = [self._message_from_model(m) for m in message_models]
+            from app.scenario_engine import interpret_pathway
+            pathway_response = interpret_pathway(agent, previous_messages, customer_text)
+            if pathway_response:
+                agent_response_text = pathway_response
+
         payload = ChatMessageRequest(agent_id=agent_id, channel=channel, message=customer_text)
         retrieval_results = retrieve_sources(
             tenant_id=tenant_id,
@@ -989,6 +1065,30 @@ class SqlAlchemyStore:
             conversation_model.status = ConversationStatus.resolved
             conversation_model.resolution_status = "Resolved by operator"
             
+            return self._conversation_from_model(conversation_model)
+
+    def escalate_conversation(
+        self, tenant_id: UUID, conversation_id: UUID
+    ) -> Conversation | None:
+        with self._session_scope() as session:
+            conversation_model = session.get(ConversationModel, str(conversation_id))
+            if conversation_model is None or conversation_model.tenant_id != str(tenant_id):
+                return None
+
+            conversation_model.status = ConversationStatus.escalated
+            conversation_model.resolution_status = "Escalated to human operator"
+
+            return self._conversation_from_model(conversation_model)
+
+    def update_conversation_summary(
+        self, tenant_id: UUID, conversation_id: UUID, summary: str
+    ) -> Conversation | None:
+        with self._session_scope() as session:
+            conversation_model = session.get(ConversationModel, str(conversation_id))
+            if conversation_model is None or conversation_model.tenant_id != str(tenant_id):
+                return None
+
+            conversation_model.summary = summary
             return self._conversation_from_model(conversation_model)
 
     def dashboard(self, tenant_id: UUID) -> tuple[Tenant, int, int, int, int, float] | None:
@@ -1457,6 +1557,8 @@ class SqlAlchemyStore:
             max_tokens=model.max_tokens,
             model_name=model.model_name,
             telegram_bot_token=getattr(model, "telegram_bot_token", None),
+            pathway_nodes=getattr(model, "pathway_nodes", None),
+            pathway_edges=getattr(model, "pathway_edges", None),
             created_at=_timestamp(model.created_at),
             updated_at=_timestamp(model.updated_at),
         )
@@ -1586,6 +1688,102 @@ class SqlAlchemyStore:
             updated_at=model.updated_at,
             items=[SqlAlchemyStore._order_item_from_model(i) for i in items],
         )
+
+    @staticmethod
+    def _test_case_from_model(model: TestCaseModel) -> TestCase:
+        return TestCase(
+            id=UUID(model.id),
+            tenant_id=UUID(model.tenant_id),
+            agent_id=UUID(model.agent_id),
+            name=model.name,
+            scenario=model.scenario,
+            expected_outcome=model.expected_outcome,
+            created_at=_timestamp(model.created_at),
+            updated_at=_timestamp(model.updated_at),
+        )
+
+    @staticmethod
+    def _test_run_from_model(model: TestRunModel) -> TestRun:
+        return TestRun(
+            id=UUID(model.id),
+            tenant_id=UUID(model.tenant_id),
+            agent_id=UUID(model.agent_id),
+            test_case_id=UUID(model.test_case_id),
+            status=TestCaseStatus(model.status),
+            logs=list(model.logs),
+            result_summary=model.result_summary,
+            created_at=_timestamp(model.created_at),
+            updated_at=_timestamp(model.updated_at),
+        )
+
+    def create_test_case(self, tenant_id: UUID, agent_id: UUID, payload: TestCaseCreate) -> TestCase:
+        with self._session_scope() as session:
+            model = TestCaseModel(
+                id=str(uuid4()),
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+                name=payload.name,
+                scenario=payload.scenario,
+                expected_outcome=payload.expected_outcome,
+            )
+            session.add(model)
+            session.flush()
+            return self._test_case_from_model(model)
+
+    def list_test_cases(self, tenant_id: UUID, agent_id: UUID) -> list[TestCase]:
+        with self.session_factory() as session:
+            models = session.scalars(
+                select(TestCaseModel).where(
+                    TestCaseModel.tenant_id == str(tenant_id),
+                    TestCaseModel.agent_id == str(agent_id)
+                )
+            ).all()
+            return [self._test_case_from_model(m) for m in models]
+
+    def get_test_case(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID) -> TestCase | None:
+        with self.session_factory() as session:
+            model = session.get(TestCaseModel, str(test_case_id))
+            if model and model.tenant_id == str(tenant_id) and model.agent_id == str(agent_id):
+                return self._test_case_from_model(model)
+            return None
+
+    def create_test_run(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID) -> TestRun:
+        with self._session_scope() as session:
+            model = TestRunModel(
+                id=str(uuid4()),
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+                test_case_id=str(test_case_id),
+                status=TestCaseStatus.running.value,
+                logs=[],
+            )
+            session.add(model)
+            session.flush()
+            return self._test_run_from_model(model)
+
+    def update_test_run(self, tenant_id: UUID, agent_id: UUID, test_run_id: UUID, status: TestCaseStatus, logs: list[dict[str, object]], result_summary: str | None = None) -> TestRun | None:
+        with self._session_scope() as session:
+            model = session.get(TestRunModel, str(test_run_id))
+            if not model or model.tenant_id != str(tenant_id) or model.agent_id != str(agent_id):
+                return None
+            model.status = status.value
+            model.logs = list(logs)
+            model.result_summary = result_summary
+            model.updated_at = datetime.now(UTC)
+            session.flush()
+            return self._test_run_from_model(model)
+
+    def list_test_runs(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID | None = None) -> list[TestRun]:
+        with self.session_factory() as session:
+            stmt = select(TestRunModel).where(
+                TestRunModel.tenant_id == str(tenant_id),
+                TestRunModel.agent_id == str(agent_id)
+            )
+            if test_case_id:
+                stmt = stmt.where(TestRunModel.test_case_id == str(test_case_id))
+            stmt = stmt.order_by(TestRunModel.created_at.desc())
+            models = session.scalars(stmt).all()
+            return [self._test_run_from_model(m) for m in models]
 
 class _SessionScope:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:

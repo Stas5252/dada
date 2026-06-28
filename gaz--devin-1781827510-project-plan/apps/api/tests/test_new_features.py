@@ -55,7 +55,7 @@ def test_team_members_list():
     from app.store_factory import get_app_store
 
     store = get_app_store()
-    headers = _auth_header(store)  # type: ignore[arg-type]
+    headers = _auth_header(store)
 
     response = client.get("/api/v1/team/members", headers=headers)
     assert response.status_code == 200
@@ -76,7 +76,7 @@ def test_team_invite_new_member():
     from app.store_factory import get_app_store
 
     store = get_app_store()
-    headers = _auth_header(store)  # type: ignore[arg-type]
+    headers = _auth_header(store)
 
     response = client.post(
         "/api/v1/team/invite",
@@ -96,7 +96,7 @@ def test_team_invite_duplicate_rejected():
     from app.store_factory import get_app_store
 
     store = get_app_store()
-    headers = _auth_header(store)  # type: ignore[arg-type]
+    headers = _auth_header(store)
 
     # First invite
     client.post(
@@ -119,7 +119,7 @@ def test_analytics_overview():
     from app.store_factory import get_app_store
 
     store = get_app_store()
-    headers = _auth_header(store)  # type: ignore[arg-type]
+    headers = _auth_header(store)
 
     response = client.get("/api/v1/analytics/overview", headers=headers)
     assert response.status_code == 200
@@ -139,7 +139,7 @@ def test_analytics_agents():
     from app.store_factory import get_app_store
 
     store = get_app_store()
-    headers = _auth_header(store)  # type: ignore[arg-type]
+    headers = _auth_header(store)
 
     response = client.get("/api/v1/analytics/agents", headers=headers)
     assert response.status_code == 200
@@ -158,7 +158,7 @@ def test_api_keys_crud():
     from app.store_factory import get_app_store
 
     store = get_app_store()
-    headers = _auth_header(store)  # type: ignore[arg-type]
+    headers = _auth_header(store)
 
     # Create key
     response = client.post(
@@ -223,11 +223,18 @@ def test_telegram_webhook_handles_valid_message():
         },
     }
 
+    import hashlib
+    expected_secret = hashlib.sha256(b"fake_token").hexdigest()
+
     from unittest.mock import patch
     with patch("app.channels.telegram_adapter.TelegramChannelAdapter.send_message") as mock_send:
         from app.channels import SendResult
         mock_send.return_value = SendResult(success=True)
-        response = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
+        response = client.post(
+            f"/api/v1/webhooks/telegram/{agent_id}", 
+            json=update,
+            headers={"x-telegram-bot-api-secret-token": expected_secret}
+        )
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
@@ -262,16 +269,27 @@ def test_telegram_webhook_deduplicates():
         },
     }
 
+    import hashlib
+    expected_secret = hashlib.sha256(b"fake_token").hexdigest()
+
     from unittest.mock import patch
     with patch("app.channels.telegram_adapter.TelegramChannelAdapter.send_message") as mock_send:
         from app.channels import SendResult
         mock_send.return_value = SendResult(success=True)
         # First request
-        r1 = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
+        r1 = client.post(
+            f"/api/v1/webhooks/telegram/{agent_id}", 
+            json=update,
+            headers={"x-telegram-bot-api-secret-token": expected_secret}
+        )
         assert r1.status_code == 200
 
         # Second request with same update_id - should be deduped
-        r2 = client.post(f"/api/v1/webhooks/telegram/{agent_id}", json=update)
+        r2 = client.post(
+            f"/api/v1/webhooks/telegram/{agent_id}", 
+            json=update,
+            headers={"x-telegram-bot-api-secret-token": expected_secret}
+        )
         assert r2.status_code == 200
         assert r2.json().get("detail") == "duplicate"
 

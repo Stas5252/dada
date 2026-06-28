@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Play, Save, UploadCloud, MessageSquare } from "lucide-react";
+import { ArrowLeft, Play, Save, UploadCloud, MessageSquare, GitFork } from "lucide-react";
 import { publishAgentAction, updateAgentAction, connectTelegramAction } from "../../actions";
 import { ActionNotice } from "../../components/ActionNotice";
 import { DashboardShell } from "../../components/DashboardShell";
@@ -10,7 +10,7 @@ import { getAgent } from "../../../lib/mvp-data";
 
 type AgentEditPageProps = {
   params: Promise<{
-    agentId: string;
+    id: string;
   }>;
   searchParams?: Promise<{
     notice?: string;
@@ -25,8 +25,8 @@ function agentTone(status: "archived" | "draft" | "testing" | "published") {
 }
 
 export default async function AgentEditPage({ params, searchParams }: AgentEditPageProps) {
-  const [{ agentId }, resolvedSearchParams] = await Promise.all([params, searchParams]);
-  const agentResult = await getAgent(agentId);
+  const [{ id }, resolvedSearchParams] = await Promise.all([params, searchParams]);
+  const agentResult = await getAgent(id);
   const notice = resolvedSearchParams?.notice;
   const agent = agentResult.data;
 
@@ -37,13 +37,22 @@ export default async function AgentEditPage({ params, searchParams }: AgentEditP
       title={agent ? agent.name : "Агент не найден"}
       description="Редактирование prompt, канала и публикации агента через live Core API."
       actions={
-        <Link
-          href="/agents"
-          className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          К агентам
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href={`/agents/${agent?.id}/pathway`}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-600"
+          >
+            <GitFork className="h-4 w-4" />
+            Конструктор сценария
+          </Link>
+          <Link
+            href="/agents"
+            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            К агентам
+          </Link>
+        </div>
       }
     >
       <div className="space-y-6">
@@ -202,6 +211,13 @@ export default async function AgentEditPage({ params, searchParams }: AgentEditP
                   >
                     <Play className="h-4 w-4" />
                     Протестировать
+                  </Link>
+                  <Link
+                    href={`/agents/${agent.id}/pathway`}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <GitFork className="h-4 w-4" />
+                    Сценарий (Pathway Builder)
                   </Link>
                 </div>
               </form>

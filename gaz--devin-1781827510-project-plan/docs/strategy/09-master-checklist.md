@@ -7,7 +7,7 @@
 - [ ] Pilot execution kit implemented in product and operations.
 - [ ] Finalize ICP and first vertical.
 - [ ] Create landing page.
-- [ ] Create ROI calculator.
+- [x] Create ROI calculator.
 - [ ] Create pitch deck.
 - [ ] Create pilot offer and contract template.
 - [ ] Create demo script and video.
@@ -31,8 +31,10 @@
 - [ ] Redis queue workers.
 - [ ] Real Qdrant upsert/search.
 - [ ] Real Telegram webhook.
+- [x] Real VK webhook with community message handling and confirmation.
+- [x] Real WhatsApp webhook with Meta validation and message handling.
 - [x] Web widget API with persistent session conversation and browser smoke.
-- [ ] Real iiko adapter.
+- [x] Real iiko adapter with menu sync and order creation using iikoCloud API.
 - [ ] Real YooKassa redirect + webhooks.
 - [ ] SIP/Asterisk voice path.
 - [ ] Billing plans and usage metering.
@@ -42,7 +44,7 @@
 
 - [ ] Preset chooser UI.
 - [ ] Demo tenant switcher for sales calls.
-- [ ] ROI calculator page.
+- [x] ROI calculator page.
 - [x] Next.js MVP shell.
 - [x] Dashboard pages.
 - [x] Mock/live API fallback.
@@ -59,7 +61,7 @@
 - [x] Embedded web widget page and launcher wired to Core API.
 - [x] Text voice preview in test console wired to Core API.
 - [ ] Operator inbox.
-- [ ] Analytics dashboards.
+- [x] Analytics dashboards.
 - [ ] Billing/settings UI.
 - [ ] Design system/storybook.
 
@@ -91,7 +93,7 @@
 - [ ] Retention/delete/export flows.
 - [ ] Secret manager integration.
 - [ ] Security questionnaire.
-- [ ] Incident response runbook.
+- [x] Incident response runbook.
 
 ## QA/DevOps
 
@@ -104,10 +106,10 @@
 - [x] Runbooks.
 - [ ] Staging environment.
 - [ ] Preview deployments.
-- [ ] E2E Playwright tests.
+- [x] E2E Playwright tests.
 - [ ] Load tests.
 - [ ] Backup restore drill automation.
-- [ ] Monitoring/alerts.
+- [x] Monitoring/alerts.
 - [ ] Release checklist.
 
 ## Sales/customer success

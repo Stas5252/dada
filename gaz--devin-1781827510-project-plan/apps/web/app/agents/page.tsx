@@ -48,15 +48,15 @@ export default async function AgentsPage({ searchParams }: AgentsPageProps) {
         {agentsResult.data.length > 0 ? (
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
             {agentsResult.data.map((agent) => (
-              <article key={agent.id} className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden hover:bg-white/[0.04] transition-colors group">
-                <div className="p-6 border-b border-white/5">
+              <article key={agent.id} className="glass-panel premium-border overflow-hidden hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(99,102,241,0.2)] transition-all duration-300 group">
+                <div className="p-6 border-b border-border bg-card/40">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
                         <Bot className="w-5 h-5" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-semibold text-white">{agent.name}</h2>
+                        <h2 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{agent.name}</h2>
                         <div className="text-xs text-zinc-500 font-mono">v{agent.version}</div>
                       </div>
                     </div>
@@ -67,7 +67,7 @@ export default async function AgentsPage({ searchParams }: AgentsPageProps) {
                   </p>
                 </div>
 
-                <div className="px-6 py-4 border-b border-white/5 bg-black/20">
+                <div className="px-6 py-4 border-b border-border bg-card/60 backdrop-blur-md">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <div className="text-xs text-zinc-500 mb-1">Каналы</div>
@@ -84,16 +84,16 @@ export default async function AgentsPage({ searchParams }: AgentsPageProps) {
                   </div>
                 </div>
 
-                <div className="p-4 flex items-center gap-2 bg-zinc-950/50">
+                <div className="p-4 flex items-center gap-2 bg-card/80">
                   <Link
                     href={`/agents/${agent.id}`}
-                    className="flex-1 flex justify-center items-center gap-2 bg-white/5 hover:bg-white/10 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex-1 flex justify-center items-center gap-2 bg-white/5 hover:bg-white/10 text-foreground px-3 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Settings2 className="w-4 h-4" /> Edit
                   </Link>
                   <Link
                     href={`/test-console?agentId=${agent.id}`}
-                    className="flex-1 flex justify-center items-center gap-2 bg-white/5 hover:bg-white/10 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex-1 flex justify-center items-center gap-2 bg-white/5 hover:bg-white/10 text-foreground px-3 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Play className="w-4 h-4" /> Test
                   </Link>

@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import json
 import logging
 from typing import Literal
@@ -17,6 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from twilio.request_validator import RequestValidator
 
 from app.api.v1.dependencies import require_tenant_permission
 from app.contracts.voice import (
@@ -30,7 +33,14 @@ from app.orchestrator import AgentOrchestrator
 from app.rbac import Permission
 from app.service_factory import get_voice_service
 from app.settings import Settings, get_settings
-from app.speech_service import SpeechService, get_speech_service
+from app.speech_service import (
+    SpeechService,
+    StreamingSTT,
+    StreamingTTS,
+    get_speech_service,
+    get_streaming_stt,
+    get_streaming_tts,
+)
 from app.store_factory import AppStore, get_app_store
 from app.twilio_service import trigger_outbound_call, trigger_sms_send
 from app.voice_service import VoiceSessionService
@@ -275,8 +285,23 @@ async def initiate_call(
     return {"call_sid": call_sid, "status": "initiated"}
 
 
+async def _validate_twilio_request(request: Request, auth_token: str) -> None:
+    if not auth_token:
+        # Skip validation if token is not configured (e.g. local dev)
+        return
+    validator = RequestValidator(auth_token)
+    signature = request.headers.get("X-Twilio-Signature", "")
+    url = str(request.url)
+    form_data = await request.form()
+    post_params = {k: v for k, v in form_data.items()}
+    if not validator.validate(url, post_params, signature):
+        logger.warning("Invalid Twilio signature for URL: %s", url)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Twilio signature")
+
+
 @router.post("/webhooks/twilio/voice/{agent_id}")
 async def twilio_voice_webhook(
+    request: Request,
     agent_id: str,
     tenant_id: str | None = None,
     CallSid: str = Form(...),
@@ -286,6 +311,8 @@ async def twilio_voice_webhook(
     service: VoiceSessionService = Depends(get_voice_service),
 ) -> Response:
     """Handle incoming call webhook from Twilio."""
+    await _validate_twilio_request(request, settings.twilio_auth_token)
+    
     # Fallback to demo tenant if none provided
     if not tenant_id:
         tenant_id = settings.demo_tenant_id
@@ -326,11 +353,18 @@ async def twilio_voice_webhook(
     next_action_url = f"/api/v1/voice/webhooks/twilio/voice/{agent_id}?tenant_id={tenant_id}"
 
     if not SpeechResult:
-        # Start of call greeting
-        company_name = tenant.name if tenant else ""
-        greeting = (
-            f"Здравствуйте! Я ИИ-ассистент компании {company_name}. " "Чем я могу вам помочь?"
-        )
+        retry_val = request.query_params.get("retry", "")
+        if retry_val == "1":
+            greeting = "Извините, я вас не расслышал. Пожалуйста, повторите ваш вопрос."
+            next_action_url += "&retry=1"
+        elif retry_val == "2":
+            greeting = "Я всё ещё вас не слышу. Пожалуйста, скажите что-нибудь."
+            next_action_url += "&retry=2"
+        else:
+            company_name = tenant.name if tenant else ""
+            greeting = (
+                f"Здравствуйте! Я ИИ-ассистент компании {company_name}. " "Чем я могу вам помочь?"
+            )
         twiml_xml = generate_voice_twiml(greeting, gather_action_url=next_action_url)
         return Response(content=twiml_xml, media_type="application/xml")
 
@@ -370,6 +404,7 @@ async def twilio_voice_webhook(
 
 @router.post("/webhooks/twilio/sms/{agent_id}")
 async def twilio_sms_webhook(
+    request: Request,
     agent_id: str,
     tenant_id: str | None = None,
     From: str = Form(...),
@@ -379,6 +414,8 @@ async def twilio_sms_webhook(
     settings: Settings = Depends(get_settings),
 ) -> Response:
     """Handle incoming SMS from Twilio."""
+    await _validate_twilio_request(request, settings.twilio_auth_token)
+    
     if not tenant_id:
         tenant_id = settings.demo_tenant_id
 
@@ -414,7 +451,7 @@ async def twilio_sms_webhook(
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
         customer_message=Body,
-        channel="telegram",  # Normalizing to text chat
+        channel="sms",
     )
     response_text = orchestrator_result.response_text
 
@@ -422,7 +459,7 @@ async def twilio_sms_webhook(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
-        channel="telegram",
+        channel="sms",
         customer_text=Body,
         agent_response_text=response_text,
         confidence_score=orchestrator_result.confidence_score,
@@ -558,9 +595,7 @@ async def voice_websocket_stream(
     except WebSocketDisconnect:
         logger.info("WebSocket voice stream disconnected")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-
-import base64
+        logger.error("WebSocket error: %s", e)
 
 @router.websocket("/webhooks/twilio/stream/{agent_id}")
 async def twilio_media_stream_websocket(
@@ -571,6 +606,8 @@ async def twilio_media_stream_websocket(
     settings: Settings = Depends(get_settings),
     speech_service: SpeechService = Depends(get_speech_service),
     service: VoiceSessionService = Depends(get_voice_service),
+    streaming_stt: StreamingSTT = Depends(get_streaming_stt),
+    streaming_tts: StreamingTTS = Depends(get_streaming_tts),
 ) -> None:
     """Real-time Twilio Media Stream WebSocket connection."""
     await websocket.accept()
@@ -592,67 +629,100 @@ async def twilio_media_stream_websocket(
     service.get_or_start_session(tenant_id, session_id)
 
     stream_sid = None
+    tts_task = None
+
+    async def play_tts(text: str, voice_id: str) -> None:
+        nonlocal stream_sid
+        if not stream_sid:
+            return
+        try:
+            async for chunk in streaming_tts.generate_audio_stream(text, voice=voice_id, response_format="mulaw"):
+                # Encode chunk to base64
+                encoded_chunk = base64.b64encode(chunk).decode("utf-8")
+                await websocket.send_text(json.dumps({
+                    "event": "media",
+                    "streamSid": stream_sid,
+                    "media": {
+                        "payload": encoded_chunk
+                    }
+                }))
+        except asyncio.CancelledError:
+            logger.info("TTS playback cancelled due to barge-in")
+            raise
+        except Exception as e:
+            logger.error("Error in play_tts: %s", e)
+
     try:
-        audio_buffer = bytearray()
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
 
             if msg["event"] == "start":
                 stream_sid = msg["start"]["streamSid"]
-                logger.info(f"Twilio stream started: {stream_sid}")
-            
+                logger.info("Twilio stream started: %s", stream_sid)
+
             elif msg["event"] == "media":
                 payload = msg["media"]["payload"]
                 chunk = base64.b64decode(payload)
-                audio_buffer.extend(chunk)
-                
-            elif msg["event"] == "stop":
-                logger.info(f"Twilio stream stopped: {stream_sid}")
-                if len(audio_buffer) > 0:
-                    # 1. Speech-to-Text
-                    # Save as raw mulaw or pass bytes to whisper
-                    customer_text = await speech_service.speech_to_text(bytes(audio_buffer), filename="audio.ulaw")
-                    audio_buffer.clear()
 
-                    if customer_text and not customer_text.startswith("[STT Error"):
-                        # 2. Run Orchestrator
-                        orchestrator = AgentOrchestrator(store=app_store, settings=settings)
-                        orchestrator_result = await orchestrator.process_message(
-                            tenant_id=tenant_uuid,
-                            agent_id=agent_uuid,
-                            conversation_id=conversation_uuid,
-                            customer_message=customer_text,
-                            channel="sip",
-                        )
-                        response_text = orchestrator_result.response_text
-                        app_store.record_chat_turn(
-                            tenant_id=tenant_uuid,
-                            agent_id=agent_uuid,
-                            conversation_id=conversation_uuid,
-                            channel="sip",
-                            customer_text=customer_text,
-                            agent_response_text=response_text,
-                            confidence_score=orchestrator_result.confidence_score,
-                        )
-                        
-                        # 3. TTS
-                        agent = app_store.get_agent(tenant_uuid, agent_uuid)
-                        voice_id = agent.voice_id if agent else "alloy"
-                        audio_response = await speech_service.text_to_speech(response_text, voice=voice_id)
+                # Feed chunk to StreamingSTT
+                is_final, customer_text = await streaming_stt.process_audio_stream(chunk)
 
-                        if audio_response and stream_sid:
-                            # Send back Base64 audio payload
-                            encoded_audio = base64.b64encode(audio_response).decode("utf-8")
+                if is_final and customer_text:
+                    logger.info("STT recognized: %s", customer_text)
+
+                    # Barge-in: Cancel active playback
+                    if tts_task and not tts_task.done():
+                        tts_task.cancel()
+                        if stream_sid:
                             await websocket.send_text(json.dumps({
-                                "event": "media",
-                                "streamSid": stream_sid,
-                                "media": {
-                                    "payload": encoded_audio
-                                }
+                                "event": "clear",
+                                "streamSid": stream_sid
                             }))
+
+                    # Run Orchestrator
+                    orchestrator = AgentOrchestrator(store=app_store, settings=settings)
+                    orchestrator_result = await orchestrator.process_message(
+                        tenant_id=tenant_uuid,
+                        agent_id=agent_uuid,
+                        conversation_id=conversation_uuid,
+                        customer_message=customer_text,
+                        channel="sip",
+                    )
+                    response_text = orchestrator_result.response_text
+
+                    app_store.record_chat_turn(
+                        tenant_id=tenant_uuid,
+                        agent_id=agent_uuid,
+                        conversation_id=conversation_uuid,
+                        channel="sip",
+                        customer_text=customer_text,
+                        agent_response_text=response_text,
+                        confidence_score=orchestrator_result.confidence_score,
+                    )
+                    try:
+                        service.record_voice_turn(
+                            tenant_id=tenant_id,
+                            session_id=session_id,
+                            customer_text=customer_text,
+                            assistant_text=response_text,
+                        )
+                    except InvalidVoiceTransition as exc:
+                        logger.warning("Could not record WebSocket voice session turn: %s", exc)
+
+                    # Start playing TTS
+                    agent = app_store.get_agent(tenant_uuid, agent_uuid)
+                    voice_id = agent.voice_id if agent else "alloy"
+                    tts_task = asyncio.create_task(play_tts(response_text, voice_id))
+
+            elif msg["event"] == "stop":
+                logger.info("Twilio stream stopped: %s", stream_sid)
+                break
 
     except WebSocketDisconnect:
         logger.info("Twilio WebSocket disconnected")
     except Exception as e:
-        logger.error(f"Twilio WebSocket error: {e}")
+        logger.error("Twilio WebSocket error: %s", e)
+    finally:
+        if tts_task and not tts_task.done():
+            tts_task.cancel()

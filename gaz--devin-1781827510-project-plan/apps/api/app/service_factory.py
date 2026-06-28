@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from app.billing_service import BillingService
 from app.channels.telegram_adapter import TelegramChannelAdapter
+from app.channels.vk_adapter import VKChannelAdapter
+from app.channels.whatsapp_adapter import WhatsAppChannelAdapter
 from app.contracts.integrations import WebhookSigningConfig
 from app.integration_services import (
     LocalIikoAdapter,
@@ -27,6 +29,17 @@ def get_telegram_adapter(bot_token: str | None = None) -> TelegramChannelAdapter
 @lru_cache
 def get_yookassa_adapter() -> LocalYooKassaAdapter:
     return LocalYooKassaAdapter()
+
+
+@lru_cache(maxsize=100)
+def get_vk_adapter(group_token: str) -> VKChannelAdapter:
+    return VKChannelAdapter(group_token=group_token)
+
+
+@lru_cache(maxsize=100)
+def get_whatsapp_adapter(access_token: str, phone_number_id: str) -> WhatsAppChannelAdapter:
+    return WhatsAppChannelAdapter(access_token=access_token, phone_number_id=phone_number_id)
+
 
 
 @lru_cache

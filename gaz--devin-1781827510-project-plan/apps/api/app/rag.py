@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -8,11 +9,14 @@ import openai
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.http.models import Distance, PointStruct, VectorParams
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.schemas import KnowledgeChunk, KnowledgeSource, QdrantCollectionContract
 from app.settings import get_settings
 
-DEFAULT_QDRANT_VECTOR_SIZE = 1536
+logger = logging.getLogger(__name__)
+
+DEFAULT_QDRANT_VECTOR_SIZE = 384
 WORD_PATTERN = re.compile(r"\w+")
 
 
@@ -66,37 +70,26 @@ def _get_qdrant_client() -> QdrantClient:
     return QdrantClient(url=settings.qdrant_url)
 
 
+@lru_cache
+def _get_local_embedding_model():
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+
 def _get_openai_client() -> openai.Client:
     settings = get_settings()
     return openai.Client(api_key=settings.openai_api_key)
 
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
 def generate_embeddings(
     texts: list[str], dimensions: int = DEFAULT_QDRANT_VECTOR_SIZE
 ) -> list[list[float]]:
     settings = get_settings()
     if not settings.openai_api_key:
-        # Fallback to local stub if no API key
-        if dimensions < 1:
-            raise ValueError("Embedding dimensions must be positive.")
-        res = []
-        for text in texts:
-            normalized = " ".join(text.split()).encode("utf-8")
-            res.append(
-                [
-                    round(
-                        int.from_bytes(
-                            sha256(normalized + index.to_bytes(2, "big")).digest()[:4], "big"
-                        )
-                        / 0xFFFFFFFF
-                        * 2
-                        - 1,
-                        6,
-                    )
-                    for index in range(dimensions)
-                ]
-            )
-        return res
+        model = _get_local_embedding_model()
+        embeddings = model.encode(texts)
+        return embeddings.tolist()
 
     client = _get_openai_client()
     response = client.embeddings.create(
@@ -195,6 +188,7 @@ def ingestion_idempotency_key(source: KnowledgeSource) -> str:
     return f"rag-ingestion:{source.tenant_id}:{source.id}:{content_hash(source.content)}"
 
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
 def retrieve_sources(
     tenant_id: UUID,
     query: str,
@@ -219,8 +213,8 @@ def retrieve_sources(
             ),
             limit=limit,
         )
-    except (Exception, ValueError) as e:
-        print(f"Qdrant search error: {e}")
+    except Exception as e:
+        logger.error("Qdrant search error: %s", e)
         return []
 
     ranked_results: list[RetrievalResult] = []

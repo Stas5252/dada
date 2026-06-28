@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass, field
 from uuid import NAMESPACE_URL, uuid5
 
@@ -14,6 +15,15 @@ from app.contracts.integrations import (
     verify_custom_webhook_signature,
 )
 from app.contracts.types import JsonValue
+
+logger = logging.getLogger(__name__)
+
+
+def _setting_str(settings: dict[str, object] | None, key: str) -> str:
+    if not settings:
+        return ""
+    value = settings.get(key)
+    return value if isinstance(value, str) else ""
 
 
 class TelegramInboundMessage(BaseModel):
@@ -60,6 +70,45 @@ class LocalIikoAdapter:
     orders_by_idempotency_key: dict[str, IikoOrderResult] = field(default_factory=dict)
 
     async def fetch_menu(self, *, tenant_id: str) -> list[IikoMenuItem]:
+        from uuid import UUID
+
+        from app.integrations.iiko import IikoCloudClient
+        from app.store_factory import get_app_store
+
+        store = get_app_store()
+        try:
+            tenant = store.get_tenant(UUID(tenant_id))
+        except ValueError:
+            tenant = None
+
+        if tenant and tenant.settings:
+            api_login = _setting_str(tenant.settings, "iiko_api_login")
+            org_id = _setting_str(tenant.settings, "iiko_organization_id")
+            if api_login and org_id:
+                client = IikoCloudClient(api_login=api_login)
+                try:
+                    menu_data = await client.get_menu(org_id)
+                    if menu_data and "error" not in menu_data:
+                        menu_items = []
+                        products = menu_data.get("products", [])
+                        for product in products:
+                            price_minor = int(product.get("price", 0) * 100)
+                            available = not product.get("deleted", False)
+                            menu_items.append(
+                                IikoMenuItem(
+                                    tenant_id=tenant_id,
+                                    external_id=str(product.get("id")),
+                                    name=product.get("name", ""),
+                                    price_minor=price_minor,
+                                    available=available,
+                                    modifiers_schema={},
+                                )
+                            )
+                        self.menus[tenant_id] = menu_items
+                        return menu_items
+                except Exception as e:
+                    logger.error(f"Error fetching real iiko menu: {e}")
+
         return list(self.menus.get(tenant_id, ()))
 
     async def create_order(self, *, draft: IikoOrderDraft, dry_run: bool) -> IikoOrderResult:
@@ -67,47 +116,50 @@ class LocalIikoAdapter:
         if existing_order is not None:
             return existing_order
 
-        import httpx
+        from uuid import UUID
 
+        from app.integrations.iiko import IikoCloudClient
         from app.settings import get_settings
+        from app.store_factory import get_app_store
 
         settings = get_settings()
+        store = get_app_store()
+        try:
+            tenant = store.get_tenant(UUID(draft.tenant_id))
+        except ValueError:
+            tenant = None
+
+        api_login = ""
+        org_id = ""
+        terminal_group_id = ""
+
+        if tenant and tenant.settings:
+            api_login = _setting_str(tenant.settings, "iiko_api_login")
+            org_id = _setting_str(tenant.settings, "iiko_organization_id")
+            terminal_group_id = _setting_str(tenant.settings, "iiko_terminal_group_id")
+
+        if not api_login:
+            api_login = settings.iiko_api_login
+
         external_order_id = _stable_external_id("iiko-order", draft.idempotency_key)
 
-        if settings.iiko_api_login and not dry_run:
-            async with httpx.AsyncClient() as client:
-                try:
-                    # 1. Get access token
-                    auth_res = await client.post(
-                        "https://api-ru.iiko.services/api/1/access_token",
-                        json={"apiLogin": settings.iiko_api_login},
-                    )
-                    auth_res.raise_for_status()
-                    token = auth_res.json().get("token")
-
-                    # 2. Create order
-                    order_res = await client.post(
-                        "https://api-ru.iiko.services/api/1/deliveries/create",
-                        headers={"Authorization": f"Bearer {token}"},
-                        json={
-                            "organizationId": draft.tenant_id,  # Simplified for example
-                            "order": {
-                                "items": [
-                                    {
-                                        "amount": line.quantity,
-                                        "productId": line.menu_item_external_id,
-                                    }
-                                    for line in draft.lines
-                                ],
-                                "phone": draft.customer_phone,
-                            },
-                        },
-                    )
-                    if order_res.status_code == 200:
-                        data = order_res.json()
-                        external_order_id = data.get("orderInfo", {}).get("id", external_order_id)
-                except Exception as e:
-                    print(f"iiko API error: {e}")
+        if api_login and not dry_run:
+            client = IikoCloudClient(api_login=api_login)
+            try:
+                order_items = [
+                    {"productId": line.menu_item_external_id, "amount": line.quantity}
+                    for line in draft.lines
+                ]
+                res = await client.create_delivery_order(
+                    organization_id=org_id or draft.tenant_id,
+                    phone=draft.customer_phone,
+                    order_items=order_items,
+                    terminal_group_id=terminal_group_id or "default-terminal-group",
+                )
+                if "error" not in res:
+                    external_order_id = res.get("orderInfo", {}).get("id", external_order_id)
+            except Exception as e:
+                logger.error(f"iiko API error via client: {e}")
 
         order = IikoOrderResult(
             tenant_id=draft.tenant_id,
@@ -182,7 +234,7 @@ class LocalYooKassaAdapter:
 
         settings = get_settings()
         if settings.yookassa_shop_id and settings.yookassa_secret_key:
-            from yookassa import Configuration, Payment  # type: ignore[import-untyped]
+            from yookassa import Configuration, Payment
 
             Configuration.account_id = settings.yookassa_shop_id
             Configuration.secret_key = settings.yookassa_secret_key

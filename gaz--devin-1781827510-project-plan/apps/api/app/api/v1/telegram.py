@@ -2,8 +2,10 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.api.v1.dependencies import find_tenant_for_agent
 from app.channels import ChannelType, OutboundMessage
-from app.channels.telegram_adapter import TelegramChannelAdapter, parse_telegram_update
+from app.channels.telegram_adapter import parse_telegram_update
+from app.encryption import decrypt_token
 from app.orchestrator import AgentOrchestrator
 from app.service_factory import get_telegram_adapter
 from app.settings import Settings, get_settings
@@ -12,7 +14,8 @@ from app.store_factory import AppStore, get_app_store
 router = APIRouter(prefix="/webhooks/telegram", tags=["telegram"])
 
 
-from app.encryption import decrypt_token
+
+
 
 @router.post("/{agent_id}")
 async def telegram_webhook(
@@ -27,11 +30,13 @@ async def telegram_webhook(
     """
     try:
         update = await request.json()
+        if not isinstance(update, dict):
+            raise ValueError("Expected JSON dictionary")
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON") from exc
 
     # Find the agent's tenant
-    tenant_id_str = await _find_tenant_for_agent(agent_id, app_store)
+    tenant_id_str = find_tenant_for_agent(agent_id, app_store)
     if not tenant_id_str:
         return {"status": "error", "message": "Agent not found"}
 
@@ -45,6 +50,12 @@ async def telegram_webhook(
     decrypted_token = decrypt_token(agent.telegram_bot_token, settings.access_token_secret)
     if not decrypted_token:
         return {"status": "error", "message": "Failed to decrypt Telegram bot token"}
+        
+    secret_token_header = request.headers.get("x-telegram-bot-api-secret-token")
+    import hashlib
+    expected_secret = hashlib.sha256(decrypted_token.encode("utf-8")).hexdigest()
+    if secret_token_header != expected_secret:
+        raise HTTPException(status_code=403, detail="Invalid secret token")
         
     telegram = get_telegram_adapter(bot_token=decrypted_token)
 
@@ -144,31 +155,3 @@ async def telegram_webhook(
 
     return {"status": "ok"}
 
-
-async def _find_tenant_for_agent(agent_id: str, app_store: AppStore) -> str | None:
-    """
-    Find the tenant that owns a given agent.
-    Iterates through all tenants to find the agent. In production with SQL,
-    this would be a simple SELECT tenant_id FROM agents WHERE id = ?.
-    """
-    try:
-        agent_uuid = UUID(agent_id)
-    except ValueError:
-        return None
-
-    # Try to find agent globally by checking known tenants
-    # For InMemoryStore, we can access agents directly
-    if hasattr(app_store, "agents"):
-        agent = app_store.agents.get(agent_uuid)
-        if agent:
-            return str(agent.tenant_id)
-
-    # Fallback: try demo tenant
-    from app.settings import get_settings
-
-    settings = get_settings()
-    agent = app_store.get_agent(UUID(settings.demo_tenant_id), agent_uuid)
-    if agent:
-        return settings.demo_tenant_id
-
-    return None

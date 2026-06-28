@@ -21,6 +21,7 @@
 - [`strategy/16-detailed-economics.md`](strategy/16-detailed-economics.md)
 - [`strategy/17-real-cost-calculation.md`](strategy/17-real-cost-calculation.md)
 - [`strategy/18-competitor-feature-benchmark-2026-06-20.md`](strategy/18-competitor-feature-benchmark-2026-06-20.md)
+- [`strategy/19-bland-parity-gap-and-next-steps-2026-06-21.md`](strategy/19-bland-parity-gap-and-next-steps-2026-06-21.md)
 
 ## Architecture
 

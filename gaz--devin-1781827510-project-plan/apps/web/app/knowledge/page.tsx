@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ActionNotice } from "../components/ActionNotice";
 import { DashboardShell } from "../components/DashboardShell";
 import { EmptyState } from "../components/EmptyState";
@@ -199,9 +200,11 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {sourcesResult.data.map((source) => (
-                    <tr key={source.id} className="hover:bg-white/[0.04] transition-colors group cursor-pointer">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-300 font-medium">
-                        {source.name}
+                    <tr key={source.id} className="hover:bg-white/[0.04] transition-colors group">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <Link href={`/knowledge/${source.id}`} className="text-zinc-300 hover:text-emerald-400 hover:underline transition-colors">
+                          {source.name}
+                        </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2 text-sm text-zinc-400">
@@ -230,16 +233,24 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
                         {source.updatedAt}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <form action={reingestKnowledgeSourceAction}>
-                          <input name="source_id" type="hidden" value={source.id} />
-                          <button
-                            type="submit"
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/knowledge/${source.id}`}
                             className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/5 hover:text-white"
                           >
-                            <RotateCw className="h-3.5 w-3.5" />
-                            Re-index
-                          </button>
-                        </form>
+                            Детали
+                          </Link>
+                          <form action={reingestKnowledgeSourceAction} className="inline">
+                            <input name="source_id" type="hidden" value={source.id} />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/5 hover:text-white"
+                            >
+                              <RotateCw className="h-3.5 w-3.5" />
+                              Re-index
+                            </button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   ))}

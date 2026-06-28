@@ -1,24 +1,32 @@
-import httpx
 import logging
+from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
 class AmoCRMClient:
     """Client for AmoCRM integration using Bearer Token (Long-Lived or OAuth)."""
     
-    def __init__(self, domain: str, access_token: str):
+    def __init__(self, domain: str, access_token: str) -> None:
         self.domain = domain.rstrip('/')
         self.access_token = access_token
         self.base_url = f"https://{self.domain}/api/v4"
     
     @property
-    def _headers(self):
+    def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json"
         }
     
-    async def create_lead(self, name: str, phone: str = None, tags: list[str] = None, pipeline_id: int = None) -> dict:
+    async def create_lead(
+        self,
+        name: str,
+        phone: str | None = None,
+        tags: list[str] | None = None,
+        pipeline_id: int | None = None,
+    ) -> dict[str, Any]:
         """
         Creates a Lead and a Contact in AmoCRM, links them together.
         Returns the created lead info.
@@ -58,7 +66,7 @@ class AmoCRMClient:
                     # Continue without contact_id if it fails
             
             # 2. Create the lead
-            lead_payload = {
+            lead_payload: dict[str, Any] = {
                 "name": f"Лид от AI: {name}",
                 "price": 0
             }

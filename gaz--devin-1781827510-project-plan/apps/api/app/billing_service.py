@@ -35,43 +35,53 @@ class SqlAlchemyBillingLedger:
         self.session_factory = session_factory
 
     async def find(self, *, key: BillingIdempotencyKey) -> BillingLedgerEntry | None:
-        with self.session_factory() as session:
-            model = session.scalar(
-                select(BillingLedgerEntryModel).where(
-                    BillingLedgerEntryModel.idempotency_key == key.storage_key
+        import asyncio
+
+        def _find():
+            with self.session_factory() as session:
+                model = session.scalar(
+                    select(BillingLedgerEntryModel).where(
+                        BillingLedgerEntryModel.idempotency_key == key.storage_key
+                    )
                 )
-            )
-            if model:
-                parts = model.idempotency_key.split(":")
-                return BillingLedgerEntry(
-                    tenant_id=model.tenant_id,
-                    idempotency_key=BillingIdempotencyKey(
-                        tenant_id=parts[0],
-                        operation=BillingOperation(parts[1]),
-                        subject_id=parts[2],
-                        request_hash=parts[3],
-                    ),
-                    amount_minor=model.amount_minor,
-                    currency=model.currency,
-                    status=BillingStatus(model.status),
-                )
-            return None
+                if model:
+                    parts = model.idempotency_key.split(":")
+                    return BillingLedgerEntry(
+                        tenant_id=model.tenant_id,
+                        idempotency_key=BillingIdempotencyKey(
+                            tenant_id=parts[0],
+                            operation=BillingOperation(parts[1]),
+                            subject_id=parts[2],
+                            request_hash=parts[3],
+                        ),
+                        amount_minor=model.amount_minor,
+                        currency=model.currency,
+                        status=BillingStatus(model.status),
+                    )
+                return None
+
+        return await asyncio.to_thread(_find)
 
     async def save(self, *, entry: BillingLedgerEntry) -> BillingLedgerEntry:
-        with self.session_factory() as session:
-            model = BillingLedgerEntryModel(
-                id=str(uuid4()),
-                tenant_id=entry.tenant_id,
-                subject_id=entry.idempotency_key.subject_id,
-                amount_minor=entry.amount_minor,
-                currency=entry.currency,
-                status=entry.status.value,
-                idempotency_key=entry.idempotency_key.storage_key,
-                payload={},
-            )
-            session.add(model)
-            session.commit()
-            return entry
+        import asyncio
+
+        def _save():
+            with self.session_factory() as session:
+                model = BillingLedgerEntryModel(
+                    id=str(uuid4()),
+                    tenant_id=entry.tenant_id,
+                    subject_id=entry.idempotency_key.subject_id,
+                    amount_minor=entry.amount_minor,
+                    currency=entry.currency,
+                    status=entry.status.value,
+                    idempotency_key=entry.idempotency_key.storage_key,
+                    payload={},
+                )
+                session.add(model)
+                session.commit()
+                return entry
+
+        return await asyncio.to_thread(_save)
 
 
 @dataclass

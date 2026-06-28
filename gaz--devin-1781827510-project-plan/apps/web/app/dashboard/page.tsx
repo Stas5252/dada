@@ -63,12 +63,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         {/* KPIs */}
         <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {overviewResult.data.kpis.map((kpi, idx) => (
-            <div key={idx} className="bg-zinc-900/50 border border-white/5 rounded-xl p-6 relative overflow-hidden group hover:-translate-y-1 hover:shadow-[0_8px_30px_rgb(0,0,0,0.5)] hover:border-white/10 transition-all duration-300">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 group-hover:scale-110 transition-all duration-500">
+            <div key={idx} className="glass-panel premium-border p-6 relative overflow-hidden group hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(168,85,247,0.2)] transition-all duration-300">
+              <div className="absolute top-0 right-0 p-4 opacity-10 text-primary group-hover:opacity-30 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500">
                 {idx === 0 ? <Activity className="w-12 h-12" /> : idx === 1 ? <Zap className="w-12 h-12" /> : <Server className="w-12 h-12" />}
               </div>
-              <div className="text-3xl font-bold text-white mb-1 tracking-tight">{kpi.value}</div>
-              <div className="text-sm font-medium text-zinc-400 mb-1">{kpi.label}</div>
+              <div className="text-3xl font-bold text-foreground mb-1 tracking-tight">{kpi.value}</div>
+              <div className="text-sm font-medium text-muted-foreground mb-1">{kpi.label}</div>
               <div className="text-xs text-zinc-500">{kpi.detail}</div>
             </div>
           ))}
@@ -79,10 +79,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div className="lg:col-span-2 space-y-6">
 
             {/* Recent Conversations */}
-            <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden">
-              <div className="p-6 border-b border-white/5 flex items-center justify-between">
+            <section className="glass-panel premium-border overflow-hidden">
+              <div className="p-6 border-b border-border flex items-center justify-between bg-card/40">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Последние диалоги</h2>
+                  <h2 className="text-lg font-semibold text-foreground">Последние диалоги</h2>
                   <p className="text-sm text-zinc-400">История запросов к агенту.</p>
                 </div>
                 <Link href="/conversations" className="text-sm text-zinc-400 hover:text-white flex items-center gap-1 transition-colors">
@@ -133,10 +133,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </section>
 
             {/* Production Readiness */}
-            <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden">
-              <div className="p-6 border-b border-white/5 flex items-center justify-between">
+            <section className="glass-panel premium-border overflow-hidden">
+              <div className="p-6 border-b border-border flex items-center justify-between bg-card/40">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Статус Интеграций</h2>
+                  <h2 className="text-lg font-semibold text-foreground">Статус Интеграций</h2>
                   <p className="text-sm text-zinc-400">
                     Backend runtime: {readinessResult.data.environment} / {readinessResult.data.storeBackend}
                   </p>
@@ -180,9 +180,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div className="space-y-6">
 
             {/* Outbound Test Call Form */}
-            <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden p-6">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-white">Тест исходящего звонка</h2>
+            <section className="glass-panel premium-border p-6 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 opacity-5 text-primary pointer-events-none">
+                <Phone className="w-24 h-24 rotate-12" />
+              </div>
+              <div className="mb-4 relative z-10">
+                <h2 className="text-lg font-semibold text-foreground">Тест исходящего звонка</h2>
                 <p className="text-sm text-zinc-400">Робот совершит звонок на указанный номер телефона.</p>
               </div>
 
@@ -230,9 +233,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </section>
 
             {/* Alerts */}
-            <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden p-6">
+            <section className="glass-panel premium-border p-6">
               <div className="mb-4">
-                <h2 className="text-lg font-semibold text-white">Уведомления</h2>
+                <h2 className="text-lg font-semibold text-foreground">Уведомления</h2>
                 <p className="text-sm text-zinc-400">Сигналы системы.</p>
               </div>
               <div className="space-y-4">
@@ -252,9 +255,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </section>
 
             {/* Onboarding */}
-            <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden p-6">
+            <section className="glass-panel premium-border p-6">
               <div className="mb-4">
-                <h2 className="text-lg font-semibold text-white">Чеклист запуска</h2>
+                <h2 className="text-lg font-semibold text-foreground">Чеклист запуска</h2>
                 <p className="text-sm text-zinc-400">Следующие шаги.</p>
               </div>
               <div className="space-y-2">

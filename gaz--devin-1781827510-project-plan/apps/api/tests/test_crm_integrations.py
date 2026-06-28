@@ -1,7 +1,10 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from app.integrations.amocrm import AmoCRMClient
 from app.integrations.iiko import IikoCloudClient
+
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.post")

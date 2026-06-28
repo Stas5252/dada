@@ -51,8 +51,6 @@ def require_tenant_permission(permission: Permission) -> Callable[..., Awaitable
     ) -> str:
         token = _extract_optional_bearer_token(authorization)
         if token is None:
-            if settings.allow_legacy_tenant_header:
-                return _resolve_legacy_tenant_id(x_tenant_id)
             raise _unauthorized("Bearer access token is required.")
         auth_context = _resolve_auth_context(
             token=token,
@@ -173,13 +171,15 @@ def _unauthorized(message: str) -> HTTPException:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-
 def check_billing_limit(tenant_id: UUID, app_store: AppStore) -> None:
     tenant = app_store.get_tenant(tenant_id)
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
-    messages_used = app_store.count_messages(tenant_id)
+    from datetime import UTC, datetime
+    # Count only messages in the current calendar month
+    since = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    messages_used = app_store.count_messages(tenant_id, since=since)
     limit_map = {
         "free": 100,
         "start": 1000,
@@ -199,3 +199,38 @@ def check_billing_limit(tenant_id: UUID, app_store: AppStore) -> None:
                 "message": message,
             },
         )
+
+
+def find_tenant_for_agent(agent_id: str, app_store: AppStore) -> str | None:
+    """
+    Find the tenant that owns a given agent.
+    Works with both InMemoryStore and SqlAlchemyStore.
+    """
+    try:
+        agent_uuid = UUID(agent_id)
+    except ValueError:
+        return None
+
+    # For InMemoryStore: check agents dict directly
+    if hasattr(app_store, "agents"):
+        agent = app_store.agents.get(agent_uuid)
+        if agent:
+            return str(agent.tenant_id)
+
+    # For SqlAlchemyStore: query database globally to resolve tenant
+    if hasattr(app_store, "session_factory"):
+        from app.db_models import AgentModel
+        with app_store.session_factory() as session:
+            agent_model = session.get(AgentModel, str(agent_uuid))
+            if agent_model:
+                return str(agent_model.tenant_id)
+
+    # Fallback: try demo tenant
+    from app.settings import get_settings
+
+    settings = get_settings()
+    agent = app_store.get_agent(UUID(settings.demo_tenant_id), agent_uuid)
+    if agent:
+        return settings.demo_tenant_id
+
+    return None

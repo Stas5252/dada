@@ -70,7 +70,7 @@ async def upload_url(
     try:
         content = parse_url(payload.url)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
         
     if len(content.strip()) < 2:
         raise HTTPException(status_code=400, detail="Extracted content is empty")
@@ -123,3 +123,15 @@ async def ingest_source(
             detail="Knowledge source not found",
         )
     return job
+
+
+@router.get("/sources/{source_id}", response_model=KnowledgeSource)
+async def get_source(
+    source_id: UUID,
+    tenant_id: str = Depends(READ_KNOWLEDGE),
+    app_store: AppStore = Depends(get_app_store),
+) -> KnowledgeSource:
+    source = app_store.get_knowledge_source(UUID(tenant_id), source_id)
+    if not source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found")
+    return source

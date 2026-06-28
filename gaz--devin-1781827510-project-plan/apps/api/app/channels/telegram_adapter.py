@@ -79,8 +79,9 @@ class TelegramChannelAdapter:
         """Send a message via Telegram Bot API."""
         if not self.is_configured:
             logger.info(
-                f"[Telegram STUB] Would send to chat {message.external_chat_id}: "
-                f"{message.text[:100]}..."
+                "[Telegram STUB] Would send to chat %s: %s...",
+                message.external_chat_id,
+                message.text[:100],
             )
             return SendResult(
                 success=True,
@@ -109,7 +110,7 @@ class TelegramChannelAdapter:
                 )
             else:
                 error_text = response.text[:200]
-                logger.error(f"Telegram API error {response.status_code}: {error_text}")
+                logger.error("Telegram API error %d: %s", response.status_code, error_text)
                 # Retry without markdown if parsing failed
                 if response.status_code == 400 and "parse" in error_text.lower():
                     return await self._send_plain(message)
@@ -119,7 +120,7 @@ class TelegramChannelAdapter:
             logger.error("Telegram API timeout")
             return SendResult(success=False, error="Timeout")
         except Exception as e:
-            logger.error(f"Telegram send error: {e}")
+            logger.error("Telegram send error: %s", e)
             return SendResult(success=False, error=str(e))
 
     async def _send_plain(self, message: OutboundMessage) -> SendResult:
@@ -145,24 +146,27 @@ class TelegramChannelAdapter:
         except Exception as e:
             return SendResult(success=False, error=str(e))
 
-    async def set_webhook(self, webhook_url: str) -> bool:
+    async def set_webhook(self, webhook_url: str, secret_token: str | None = None) -> bool:
         """Register webhook URL with Telegram Bot API."""
         if not self.is_configured:
-            logger.info(f"[Telegram STUB] Would set webhook to: {webhook_url}")
+            logger.info("[Telegram STUB] Would set webhook to: %s", webhook_url)
             return True
 
         try:
             url = f"{TELEGRAM_API_BASE}/bot{self.bot_token}/setWebhook"
+            payload = {"url": webhook_url}
+            if secret_token:
+                payload["secret_token"] = secret_token
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, json={"url": webhook_url})
+                response = await client.post(url, json=payload)
             success = response.status_code == 200
             if success:
-                logger.info(f"Telegram webhook set to: {webhook_url}")
+                logger.info("Telegram webhook set to: %s", webhook_url)
             else:
-                logger.error(f"Failed to set Telegram webhook: {response.text}")
+                logger.error("Failed to set Telegram webhook: %s", response.text)
             return success
         except Exception as e:
-            logger.error(f"Telegram setWebhook error: {e}")
+            logger.error("Telegram setWebhook error: %s", e)
             return False
 
     def is_duplicate_update(self, update_id: str) -> bool:

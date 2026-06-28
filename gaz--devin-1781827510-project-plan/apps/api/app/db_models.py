@@ -47,6 +47,11 @@ class UserModel(Base):
     totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     mfa_recovery_code_hashes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class MembershipModel(Base):
@@ -131,6 +136,8 @@ class AgentModel(Base):
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
     model_name: Mapped[str] = mapped_column(String(120), nullable=False, default="gpt-4o-mini")
     telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pathway_nodes: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
+    pathway_edges: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -324,3 +331,36 @@ class WebhookSubscriptionModel(Base):
     events: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     secret: Mapped[str] = mapped_column(String(120), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class TestCaseModel(Base):
+    __tablename__ = "test_cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    scenario: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+class TestRunModel(Base):
+    __tablename__ = "test_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    test_case_id: Mapped[str] = mapped_column(ForeignKey("test_cases.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    logs: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False, default=list)
+    result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

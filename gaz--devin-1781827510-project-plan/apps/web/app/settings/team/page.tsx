@@ -1,6 +1,8 @@
 import { DashboardShell } from "../../components/DashboardShell";
-import { fetchCoreApi } from "../../../lib/core-api";
-import { Users, UserPlus, Shield, Mail, ShieldCheck } from "lucide-react";
+import { fetchCoreApi, type CoreUser } from "../../../lib/core-api";
+import { Users, UserPlus, Shield, Mail, ShieldCheck, Trash2, AlertTriangle } from "lucide-react";
+import { inviteTeamMemberAction, updateTeamMemberRoleAction, removeTeamMemberAction } from "../../actions";
+import { SubmitButton } from "../../components/SubmitButton";
 
 type TeamMember = {
   id: string;
@@ -32,7 +34,7 @@ function InviteForm() {
         <UserPlus className="w-4 h-4 text-emerald-500" />
         <h3 className="text-sm font-medium text-zinc-400">Пригласить в команду</h3>
       </div>
-      <form className="space-y-4">
+      <form action={inviteTeamMemberAction} className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="invite-name" className="block text-xs font-medium text-zinc-400 mb-1.5">Имя</label>
@@ -63,34 +65,43 @@ function InviteForm() {
             <select
               id="invite-role"
               name="role"
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans"
             >
               <option value="viewer">Наблюдатель</option>
               <option value="agent">Оператор</option>
               <option value="admin">Админ</option>
             </select>
           </div>
-          <button
-            type="submit"
+          <SubmitButton
+            pendingText="Приглашение..."
             className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 transition-colors"
           >
             Пригласить
-          </button>
+          </SubmitButton>
         </div>
       </form>
     </div>
   );
 }
 
-export default async function TeamPage() {
-  const members = await getTeamMembers();
+type TeamPageProps = {
+  searchParams?: Promise<{
+    notice?: string;
+    invite_msg?: string;
+  }>;
+};
 
-  // Fallback demo data
-  const displayMembers = members.length > 0 ? members : [
-    { id: "1", name: "Demo Owner", email: "owner@demo-pizza.ru", role: "owner", email_verified: true, mfa_enabled: true, created_at: new Date().toISOString() },
-    { id: "2", name: "Менеджер", email: "manager@demo-pizza.ru", role: "admin", email_verified: true, mfa_enabled: false, created_at: new Date().toISOString() },
-    { id: "3", name: "Оператор Анна", email: "anna@demo-pizza.ru", role: "agent", email_verified: false, mfa_enabled: false, created_at: new Date().toISOString() },
-  ];
+export default async function TeamPage({ searchParams }: TeamPageProps) {
+  const params = await searchParams;
+  const notice = params?.notice;
+  const inviteMsg = params?.invite_msg;
+
+  const [displayMembers, userResult] = await Promise.all([
+    getTeamMembers(),
+    fetchCoreApi<CoreUser>("/api/v1/auth/me"),
+  ]);
+
+  const currentUser = userResult.state === "live" ? userResult.data : null;
 
   return (
     <DashboardShell
@@ -99,6 +110,50 @@ export default async function TeamPage() {
       title="Команда"
       description="Управляйте пользователями и ролями"
     >
+      {/* Notices */}
+      {notice === "member-invited" && inviteMsg && (
+        <div className="mb-6 p-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 text-sm">
+          <h4 className="font-semibold text-white text-sm mb-2">Приглашение создано</h4>
+          <p className="mb-3 text-emerald-400/80">{inviteMsg}</p>
+          <p className="text-xs text-zinc-405">
+            Передайте временный пароль новому участнику команды для входа.
+          </p>
+        </div>
+      )}
+
+      {notice === "invite-error" && (
+        <div className="mb-6 p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+          <span>Ошибка при отправке приглашения. Возможно, этот email уже зарегистрирован.</span>
+        </div>
+      )}
+
+      {notice === "role-updated" && (
+        <div className="mb-6 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 text-sm">
+          Роль участника успешно обновлена.
+        </div>
+      )}
+
+      {notice === "role-error" && (
+        <div className="mb-6 p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+          <span>Не удалось обновить роль. Проверьте права доступа.</span>
+        </div>
+      )}
+
+      {notice === "member-removed" && (
+        <div className="mb-6 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 text-sm">
+          Участник успешно удален из команды.
+        </div>
+      )}
+
+      {notice === "remove-error" && (
+        <div className="mb-6 p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+          <span>Не удалось удалить участника. Проверьте, не является ли он последним владельцем.</span>
+        </div>
+      )}
+
       {/* Members List */}
       <div className="rounded-2xl border border-white/5 bg-zinc-900/50 overflow-hidden mb-6">
         <div className="p-4 border-b border-white/5 flex items-center gap-2">
@@ -108,15 +163,21 @@ export default async function TeamPage() {
         <div className="divide-y divide-white/5">
           {displayMembers.map((member) => {
             const roleInfo = roleLabels[member.role] || roleLabels.viewer;
+            const isSelf = currentUser && member.id === currentUser.id;
             return (
               <div key={member.id} className="p-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
                 <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-sm font-bold text-white flex-shrink-0 font-sans">
                     {member.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-white truncate">{member.name}</span>
+                      {isSelf && (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-medium text-emerald-400 bg-emerald-400/10">
+                          Вы
+                        </span>
+                      )}
                       {member.mfa_enabled && (
                         <span title="MFA включен">
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
@@ -133,9 +194,44 @@ export default async function TeamPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${roleInfo.color}`}>
-                    {roleInfo.label}
-                  </span>
+                  {isSelf ? (
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${roleInfo.color}`}>
+                      {roleInfo.label}
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <form action={updateTeamMemberRoleAction} className="flex items-center gap-1.5">
+                        <input type="hidden" name="member_id" value={member.id} />
+                        <select
+                          name="role"
+                          defaultValue={member.role}
+                          className="rounded-lg border border-white/10 bg-zinc-800 px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans"
+                        >
+                          <option value="viewer">Наблюдатель</option>
+                          <option value="agent">Оператор</option>
+                          <option value="admin">Админ</option>
+                          <option value="owner">Владелец</option>
+                        </select>
+                        <SubmitButton
+                          pendingText=".."
+                          className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[10px] text-zinc-300 font-medium border border-white/5"
+                        >
+                          Изменить
+                        </SubmitButton>
+                      </form>
+
+                      <form action={removeTeamMemberAction} className="inline">
+                        <input type="hidden" name="member_id" value={member.id} />
+                        <SubmitButton
+                          pendingText="..."
+                          className="p-2 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-400/5 transition-colors flex items-center justify-center"
+                          title="Удалить участника"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </SubmitButton>
+                      </form>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -171,12 +267,6 @@ export default async function TeamPage() {
           </div>
         </div>
       </div>
-
-      {members.length === 0 && (
-        <p className="text-xs text-zinc-600 mt-4 text-center">
-          Показаны demo-данные. Подключите API для управления командой.
-        </p>
-      )}
     </DashboardShell>
   );
 }

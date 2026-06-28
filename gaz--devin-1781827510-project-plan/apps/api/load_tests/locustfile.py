@@ -1,7 +1,6 @@
-import json
 import random
-import uuid
-from locust import HttpUser, task, between
+
+from locust import HttpUser, between, task
 
 TENANT_ID = "00000000-0000-0000-0000-000000000001"
 

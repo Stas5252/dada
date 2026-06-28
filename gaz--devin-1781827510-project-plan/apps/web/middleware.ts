@@ -14,6 +14,9 @@ export function middleware(request: NextRequest) {
     "/conversations",
     "/analytics",
     "/settings",
+    "/billing",
+    "/operator",
+    "/super-admin",
   ];
 
   const isProtected = protectedRoutes.some((route) => request.nextUrl.pathname.startsWith(route));

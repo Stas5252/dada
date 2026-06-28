@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Save, MessageSquare, PhoneCall, CreditCard, HelpCircle, MessageCircle } from "lucide-react";
+import { ArrowLeft, Save, MessageSquare, PhoneCall, CreditCard, HelpCircle, MessageCircle, Utensils } from "lucide-react";
 import { DashboardShell } from "../../components/DashboardShell";
 import { updateTenantSettingsAction } from "../../actions";
 import { fetchCoreApi, getCoreTenantId } from "../../../lib/core-api";
@@ -54,6 +54,34 @@ export default async function ChannelsPage({
         )}
 
         <form action={updateTenantSettingsAction} className="space-y-8">
+
+          {/* OpenAI Integration Block */}
+          <section className="bg-zinc-900/40 border border-white/5 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <MessageCircle className="w-6 h-6 text-purple-400" />
+              <div>
+                <h2 className="text-lg font-semibold text-white">Модели ИИ (OpenAI)</h2>
+                <p className="text-xs text-zinc-400">Собственный ключ для генерации ответов и работы агентов.</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300 block">OpenAI API Key (BYOK)</label>
+              <input
+                type="password"
+                name="openai_api_key"
+                defaultValue={settings.openai_api_key || ""}
+                placeholder="sk-..."
+                className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-purple-500"
+              />
+              <div className="mt-2 flex items-start gap-2 text-xs text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
+                <HelpCircle className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" />
+                <p>
+                  Как настроить: Перейдите на <b>platform.openai.com</b>, создайте новый API-ключ в разделе API Keys и вставьте его сюда. Этот ключ будет использоваться вашими ИИ-агентами (если не указано, система будет использовать мок-генерацию).
+                </p>
+              </div>
+            </div>
+          </section>
 
           {/* Telegram Block */}
           <section className="bg-zinc-900/40 border border-white/5 rounded-xl p-6 space-y-4">
@@ -167,6 +195,59 @@ export default async function ChannelsPage({
                   className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-purple-500"
                 />
               </div>
+            </div>
+          </section>
+
+          {/* iikoCloud Integration Block */}
+          <section className="bg-zinc-900/40 border border-white/5 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <Utensils className="w-6 h-6 text-amber-400" />
+              <div>
+                <h2 className="text-lg font-semibold text-white">Интеграция с iikoCloud</h2>
+                <p className="text-xs text-zinc-400">Синхронизация меню ресторана и автоматическое создание заказов.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">Логин API (apiLogin)</label>
+                <input
+                  type="text"
+                  name="iiko_api_login"
+                  defaultValue={settings.iiko_api_login || ""}
+                  placeholder="e.g. 5d5a7d6e..."
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">ID Организации (Organization ID)</label>
+                <input
+                  type="text"
+                  name="iiko_organization_id"
+                  defaultValue={settings.iiko_organization_id || ""}
+                  placeholder="e.g. 88bc77c2-..."
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 block">ID Группы Терминалов (Terminal Group ID)</label>
+                <input
+                  type="text"
+                  name="iiko_terminal_group_id"
+                  defaultValue={settings.iiko_terminal_group_id || ""}
+                  placeholder="e.g. 43a6d71b-..."
+                  className="w-full rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-start gap-2 text-xs text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
+              <HelpCircle className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" />
+              <p>
+                Как настроить: Введите ваши учетные данные iikoCloud. Вы можете найти API Login, ID организации и ID группы терминалов в личном кабинете iikoWeb/iikoCloud. После сохранения меню ресторана будет периодически синхронизироваться с базой знаний ИИ-агента.
+              </p>
             </div>
           </section>
 

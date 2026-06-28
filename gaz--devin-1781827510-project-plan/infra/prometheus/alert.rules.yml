@@ -1,0 +1,29 @@
+groups:
+  - name: callforce-alerts
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Instance {{ $labels.instance }} is down"
+          description: "The service instance {{ $labels.instance }} under job {{ $labels.job }} has been down for more than 1 minute."
+
+      - alert: HighApiErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[2m])) by (job) / sum(rate(http_requests_total[2m])) by (job) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP 5xx error rate on {{ $labels.job }}"
+          description: "HTTP 5xx error rate is above 5% (current value: {{ $value | printf \"%.2f\" }}%) for the last 2 minutes."
+
+      - alert: HighApiLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency on {{ $labels.job }}"
+          description: "95% of HTTP requests to {{ $labels.job }} are taking more than 2 seconds to respond."

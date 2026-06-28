@@ -32,6 +32,7 @@
 16. [`16-detailed-economics.md`](16-detailed-economics.md) — детальная экономика, P&L, breakeven, инвестиции.
 17. [`17-real-cost-calculation.md`](17-real-cost-calculation.md) — реальный расчет при 0 ₽ вложений, API vs local GPU, цена звонка/диалога.
 18. [`18-competitor-feature-benchmark-2026-06-20.md`](18-competitor-feature-benchmark-2026-06-20.md) — официальный benchmark Intercom/Fin, Zendesk, Ada, PolyAI, Retell, Bland/Five9 и честные parity gaps.
+19. [`19-bland-parity-gap-and-next-steps-2026-06-21.md`](19-bland-parity-gap-and-next-steps-2026-06-21.md) — текущая сверка с Bland.ai, проверенные quality gates, честные gaps и порядок следующих slice.
 
 ## Связанные документы репозитория
 

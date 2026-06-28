@@ -35,8 +35,18 @@ def generate_voice_twiml(text: str, gather_action_url: str | None = None) -> str
         )
         twiml += f'    <Say language="ru-RU">{text}</Say>\n'
         twiml += "  </Gather>\n"
-        twiml += '  <Say language="ru-RU">Я не услышал вашего ответа. Всего доброго!</Say>\n'
-        twiml += "  <Hangup/>\n"
+        
+        # Check current retry count from the url to determine next fallback step
+        if "retry=1" in gather_action_url:
+            retry_url = gather_action_url.replace("retry=1", "retry=2")
+            twiml += f'  <Redirect>{retry_url}</Redirect>\n'
+        elif "retry=2" in gather_action_url:
+            twiml += '  <Say language="ru-RU">Извините, не удалось разобрать речь. Всего доброго!</Say>\n'
+            twiml += "  <Hangup/>\n"
+        else:
+            separator = "&" if "?" in gather_action_url else "?"
+            retry_url = f"{gather_action_url}{separator}retry=1"
+            twiml += f'  <Redirect>{retry_url}</Redirect>\n'
     else:
         twiml += f'  <Say language="ru-RU">{text}</Say>\n'
         twiml += "  <Hangup/>\n"
@@ -105,10 +115,17 @@ async def trigger_outbound_call(
 
     # Real Twilio API integration
     try:
+        import asyncio
+
         from twilio.rest import Client  # type: ignore[import-untyped]
 
         client = Client(account_sid, auth_token)
-        call = client.calls.create(to=to_number, from_=from_number, url=webhook_url)
+        call = await asyncio.to_thread(
+            client.calls.create,
+            to=to_number,
+            from_=from_number,
+            url=webhook_url,
+        )
         return str(call.sid)
     except ImportError:
         logger.warning("twilio SDK is not installed. Falling back to simulation.")
@@ -161,10 +178,17 @@ async def trigger_sms_send(
 
     # Real Twilio SMS send
     try:
+        import asyncio
+
         from twilio.rest import Client
 
         client = Client(account_sid, auth_token)
-        client.messages.create(to=to_number, from_=from_number, body=body)
+        await asyncio.to_thread(
+            client.messages.create,
+            to=to_number,
+            from_=from_number,
+            body=body,
+        )
         return True
     except ImportError:
         logger.warning("twilio SDK is not installed. SMS simulated.")

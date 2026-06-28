@@ -72,3 +72,15 @@ This document breaks down the implementation of the CallForce master plan into s
 - [ ] Finalize logging, PII masking, metrics.
 - [ ] E2E/Load tests and staging deployment.
 - [ ] Acceptance: Platform ready for real public launch.
+
+## 12. Bland parity hardening checkpoint (2026-06-21)
+- [x] Re-check Bland.ai public/docs benchmark and write parity gap report.
+- [x] Restore clean backend gates after recent feature work: ruff, mypy, pytest 105/105.
+- [x] Restore frontend type/build gates: lint 0 errors, typecheck, production build.
+- [x] Fix blocking demo endpoint, action-engine payload parsing, pathway typing, scenario typing, billing UUID and iiko settings typing.
+- [ ] Clean remaining frontend lint warnings and Recharts SSR chart warnings.
+- [ ] Implement Bland-style Testbed: scenario standards, per-node tests, pass thresholds, publish gates.
+- [ ] Implement runtime Guard Rails: opt-out, prohibited content, tool-call safety, forced escalation.
+- [ ] Implement cross-channel Memory: facts, summaries, open items, recent messages.
+- [ ] Implement real SIP/STT/TTS voice path with measured latency.
+- [ ] Acceptance: parity report `19-bland-parity-gap-and-next-steps-2026-06-21.md` has all critical gaps closed and verified by automated/browser/staging checks.

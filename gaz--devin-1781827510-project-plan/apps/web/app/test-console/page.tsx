@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { createMockChatAction, createVoicePreviewAction } from "../actions";
+import { createMockChatAction, createVoicePreviewAction, triggerOutboundCallAction } from "../actions";
 import { ActionNotice } from "../components/ActionNotice";
 import { DashboardShell } from "../components/DashboardShell";
 import { EmptyState } from "../components/EmptyState";
 import { ResultNotice } from "../components/ResultNotice";
 import { StatusPill } from "../components/StatusPill";
 import { VoiceRecorder } from "../components/VoiceRecorder";
+import { BrowserCallWidget } from "../components/BrowserCallWidget";
 import { getAgents, getConversations } from "../../lib/mvp-data";
 import { getCoreTenantId } from "../../lib/core-api";
-import { Mic2, Send, MessageSquare } from "lucide-react";
+import { Mic2, Send, MessageSquare, PhoneCall } from "lucide-react";
 
 type TestConsolePageProps = {
   searchParams?: Promise<{
@@ -153,13 +154,69 @@ export default async function TestConsolePage({ searchParams }: TestConsolePageP
                 )}
               </div>
 
+              <div className="border-t border-white/10 pt-8 space-y-4">
+                <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                  <PhoneCall className="w-5 h-5 text-emerald-400" />
+                  Телефонный звонок (Bland.ai Style)
+                </h3>
+                {agentsResult.data.length > 0 ? (
+                  <form action={triggerOutboundCallAction} className="space-y-4">
+                    <input
+                      name="agent_id"
+                      type="hidden"
+                      value={selectedAgentId || agentsResult.data[0].id}
+                    />
+                    <input
+                      name="return_to"
+                      type="hidden"
+                      value="/test-console"
+                    />
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-300 block">
+                        Номер телефона для вызова
+                      </label>
+                      <input
+                        type="text"
+                        name="to_number"
+                        defaultValue="+7"
+                        placeholder="+79991234567"
+                        required
+                        className="w-full bg-black border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:outline-none focus:border-emerald-500 transition-colors"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium py-2.5 rounded-lg hover:from-emerald-400 hover:to-teal-400 transition-colors shadow-lg shadow-emerald-500/10 cursor-pointer animate-none"
+                    >
+                      <PhoneCall className="w-4 h-4" />
+                      Позвонить мне
+                    </button>
+
+                    <div className="pt-2">
+                      <BrowserCallWidget
+                        agentId={selectedAgentId || agentsResult.data[0].id}
+                        agentName={agentsResult.data.find(a => a.id === (selectedAgentId || agentsResult.data[0].id))?.name || "ИИ-Ассистент"}
+                        buttonClassName="w-full bg-purple-600 border-purple-500 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/20 py-2.5 cursor-pointer"
+                        buttonText="Поговорить с ИИ в браузере (Симулятор)"
+                      />
+                    </div>
+
+                    <div className="text-xs text-zinc-500 bg-white/5 p-3 rounded-lg border border-white/5 leading-relaxed">
+                      <b>Инструкция</b>: Бот совершит звонок на указанный номер. Если в настройках «Каналов связи» не заполнены SID и токен Twilio, звонок будет сэмулирован на сервере, а лог сохранится в <code>tmp/outbound_calls_log.json</code>.
+                    </div>
+                  </form>
+                ) : (
+                  <div className="text-sm text-zinc-500">Сначала создайте агента.</div>
+                )}
+              </div>
+
               <div className="border-t border-white/10 pt-8">
                 <h3 className="text-lg font-medium text-white mb-4">Voice E2E Testing</h3>
-              {agentsResult.data.length > 0 ? (
-                <VoiceRecorder agentId={selectedAgentId || agentsResult.data[0].id} tenantId={tenantId} />
-              ) : (
-                <div className="text-sm text-zinc-500">Сначала создайте агента.</div>
-              )}
+                {agentsResult.data.length > 0 ? (
+                  <VoiceRecorder agentId={selectedAgentId || agentsResult.data[0].id} tenantId={tenantId} />
+                ) : (
+                  <div className="text-sm text-zinc-500">Сначала создайте агента.</div>
+                )}
               </div>
             </div>
           </article>

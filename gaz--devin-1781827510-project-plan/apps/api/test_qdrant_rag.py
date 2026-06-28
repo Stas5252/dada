@@ -1,8 +1,7 @@
 import asyncio
-import httpx
-import json
 import logging
-from uuid import uuid4
+
+import httpx
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

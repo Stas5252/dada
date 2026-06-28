@@ -113,6 +113,8 @@ class Agent(TimestampedModel):
     max_tokens: int = 1024
     model_name: str = "gpt-4o-mini"
     telegram_bot_token: str | None = None
+    pathway_nodes: list[dict[str, object]] | None = None
+    pathway_edges: list[dict[str, object]] | None = None
 
 
 class KnowledgeSource(TimestampedModel):
@@ -339,6 +341,8 @@ class AgentCreateRequest(BaseModel):
     temperature: float = 0.3
     max_tokens: int = 1024
     model_name: str = "gpt-4o-mini"
+    pathway_nodes: list[dict[str, object]] | None = None
+    pathway_edges: list[dict[str, object]] | None = None
 
 
 class AgentUpdateRequest(BaseModel):
@@ -352,6 +356,8 @@ class AgentUpdateRequest(BaseModel):
     max_tokens: int | None = None
     model_name: str | None = None
     telegram_bot_token: str | None = None
+    pathway_nodes: list[dict[str, object]] | None = None
+    pathway_edges: list[dict[str, object]] | None = None
 
 
 class KnowledgeSourceCreateRequest(BaseModel):
@@ -366,6 +372,7 @@ class TelegramConnectRequest(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     agent_id: UUID
+    conversation_id: UUID | None = None
     channel: str = "web_widget"
     message: str = Field(min_length=1, max_length=4000)
 
@@ -404,3 +411,29 @@ class ApiKey(TimestampedModel):
     scopes: list[str] = Field(default_factory=lambda: ["read"])
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
+
+class TestCaseStatus(StrEnum):
+    running = "running"
+    passed = "passed"
+    failed = "failed"
+
+class TestCaseCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    scenario: str = Field(min_length=10, max_length=2000)
+    expected_outcome: str = Field(min_length=2, max_length=1000)
+
+class TestCase(TestCaseCreate, TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    agent_id: UUID
+
+class TestRunBase(BaseModel):
+    status: TestCaseStatus = TestCaseStatus.running
+    logs: list[dict[str, object]] = Field(default_factory=list)
+    result_summary: str | None = None
+
+class TestRun(TestRunBase, TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    agent_id: UUID
+    test_case_id: UUID

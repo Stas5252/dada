@@ -2,13 +2,14 @@ import logging
 from typing import Any
 
 import httpx
+
 from app.channels import ChannelType, DeduplicationStore, MessageEvent, OutboundMessage, SendResult
 
 logger = logging.getLogger(__name__)
 
 def parse_whatsapp_update(update: dict[str, Any]) -> list[MessageEvent]:
     """Parse incoming Meta WhatsApp webhook update into normalized MessageEvents."""
-    events = []
+    events: list[MessageEvent] = []
     
     if update.get("object") != "whatsapp_business_account":
         return events
@@ -28,10 +29,13 @@ def parse_whatsapp_update(update: dict[str, Any]) -> list[MessageEvent]:
                 text = ""
                 msg_type = msg.get("type")
                 if msg_type == "text":
-                    text = msg.get("text", {}).get("body", "")
+                    text_obj = msg.get("text") or {}
+                    text = text_obj.get("body", "")
                 elif msg_type == "interactive":
-                    interactive = msg.get("interactive", {})
-                    text = interactive.get("button_reply", {}).get("title", "") or interactive.get("list_reply", {}).get("title", "")
+                    interactive = msg.get("interactive") or {}
+                    button_reply = interactive.get("button_reply") or {}
+                    list_reply = interactive.get("list_reply") or {}
+                    text = button_reply.get("title", "") or list_reply.get("title", "")
 
                 if not msg_id or not from_number or not text:
                     continue
@@ -56,7 +60,7 @@ def parse_whatsapp_update(update: dict[str, Any]) -> list[MessageEvent]:
 
 
 class WhatsAppChannelAdapter:
-    def __init__(self, access_token: str, phone_number_id: str):
+    def __init__(self, access_token: str, phone_number_id: str) -> None:
         self.access_token = access_token
         self.phone_number_id = phone_number_id
         self.api_version = "v19.0"

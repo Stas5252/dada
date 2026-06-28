@@ -167,7 +167,7 @@
   - добавлены настройки `LLM_PROVIDER`, `LLM_MAX_TOKENS`, `LLM_TEMPERATURE`, `LLM_TIMEOUT_SECONDS`, `OPENAI_FAST_MODEL`, `OPENAI_SMART_MODEL`, `VLLM_API_KEY`, `VLLM_MODEL`;
   - routing policy: `auto` использует local/vLLM для fast routes, OpenAI для smartest routes при наличии ключа, и deterministic mock только когда нет настроенного provider-а;
   - `/api/v1/readiness` теперь показывает provider `llm`: `configured` для `VLLM_BASE_URL`/`OPENAI_API_KEY`, `missing_secret` при явно выбранном provider-е без endpoint/secret, `local_stub` для local mock режима;
-  - `.env.example`, local-development и production-services runbooks синхронизированы с реальными backend env-переменными;
+  - `.env.example`, local-development and production-services runbooks синхронизированы с реальными backend env-переменными;
   - regression tests добавлены для local vLLM routing без OpenAI key и readiness local LLM provider;
   - проверки прошли для целевого набора: backend `ruff`, `mypy`, `pytest tests/test_llm_router.py tests/test_health.py` 5/5.
 - Продолжение voice preview / Twilio hardening 2026-06-20:
@@ -192,6 +192,25 @@
   - backend dependency manifest и `uv.lock` синхронизированы с реально используемыми сервисными пакетами: `alembic`, `aiosmtplib`, Redis-ready `limits`, `twilio` и `sentry-sdk`;
   - test auth helper больше не зашивает local secret и выпускает JWT через текущий `ACCESS_TOKEN_SECRET`, поэтому feature-тесты проходят как в local, так и в GitHub CI;
   - перед повторным push локально пройдены `pre-commit`, backend `ruff`/`mypy`/`pytest` 77/77 и root `lint`/`typecheck`/`build`/`test`.
+- Продолжение hardening-pass (Settings & Deployment) 2026-06-21:
+  - Подключены frontend server actions в настройках API ключей (`settings/api-keys`): формы привязаны к `createApiKeyAction`, отзыв — к `revokeApiKeyAction`, добавлен вывод сгенерированного ключа при создании с CopyButton, demo fallback массивы полностью удалены.
+  - Подключены frontend server actions в настройках команды (`settings/team`): привязка к `inviteTeamMemberAction`, `updateTeamMemberRoleAction` и `removeTeamMemberAction`, реализована возможность изменять роль и удалять участников из списка с динамическим подгружением текущего пользователя (чтобы защитить его от само-удаления), demo fallback списки удалены.
+  - Заблокирован legacy tenant header fallback для staging/production путем принудительного задания `ALLOW_LEGACY_TENANT_HEADER: "false"` в `infra/docker-compose.yml`.
+  - Все тесты и проверки пройдены со 100% успехом: backend `pytest` (96/96), frontend `lint`, `typecheck`, `build` и Playwright E2E smoke тесты (4/4).
+- Интеграция и верификация каналов VK и WhatsApp (2026-06-21):
+  - Добавлены интеграционные тесты для VK и WhatsApp в `apps/api/tests/test_channels.py` (число backend-тестов выросло до 102/102).
+  - Реализованы кэшируемые фабрики `get_vk_adapter` и `get_whatsapp_adapter` с декоратором `@lru_cache` в `apps/api/app/service_factory.py`, предотвращающие пересоздание `DeduplicationStore` на каждый запрос.
+  - Обновлены обработчики вебхуков в `vk.py` и `whatsapp.py` для использования кэшированных адаптеров из `service_factory`.
+  - Исправлен NameError с `vk_token` в `vk.py` путем корректного извлечения `vk_group_token` из настроек тенанта.
+  - Все 102 теста успешно проходят.
+- Интеграция с iikoCloud (EPIC-INTEGRATIONS) 2026-06-21:
+  - Добавлена новая секция настроек iikoCloud во фронтенд ЛК (`apps/web/app/settings/channels/page.tsx`) для ввода `iiko_api_login`, `iiko_organization_id` и `iiko_terminal_group_id`.
+  - Обновлено действие `updateTenantSettingsAction` (`apps/web/app/actions.ts`) для валидации и сохранения учетных данных в настройки тенанта.
+  - Реализован реальный клиент `IikoCloudClient` и его интеграция с `LocalIikoAdapter` (`apps/api/app/integration_services.py`) для автоматического импорта номенклатуры/меню, парсинга товаров, проверки на удаление и создания заказов доставки.
+  - Написаны детальные тесты в `apps/api/tests/test_iiko_integration.py` с использованием моков HTTP-запросов и проверкой отказоустойчивости при сбоях сети.
+  - Исправлены падения тестов из-за некорректной валидации UUID для строковых идентификаторов тенантов в `LocalIikoAdapter`.
+  - Исправлен тест `test_threaded_backend_retries_and_fails` в `test_threaded_worker.py` с помощью изолированного мока `time` для предотвращения глобального изменения и гонок потоков.
+  - Все 105 тестов успешно проходят.
 
 ### Вывод по статусу
 
@@ -693,20 +712,20 @@ Critical test cases:
 ### EPIC-AUTH
 
 - [x] Регистрация/логин: register/login, password hashing, JWT access, refresh rotation, logout revocation, password reset/email verification pages, rate limiting и базовый optional MFA есть.
-- [ ] RBAC/account management: role helpers и business route permission guard есть, нужны team/user management, invite flow, MFA admin enforcement/re-enroll policy и UI для ролей.
-- [ ] Tenant middleware: auth-bound tenant context есть, нужно отключить legacy header fallback в staging/prod.
-- [ ] API keys.
+- [x] RBAC/account management: role helpers и business route permission guard есть, team/user management, invite flow, role assignment UI подключены и функционируют.
+- [x] Tenant middleware: auth-bound tenant context есть, legacy header fallback отключен в staging/prod via docker-compose.
+- [x] API keys: подключено создание, отзыв и копирование API-ключей в UI настройках.
 - [x] MFA optional: backend setup/verify/login, recovery codes, disable flow, публичные `mfa_enabled`/remaining codes, frontend `/settings/security` и browser smoke есть.
 
 ### EPIC-KB-RAG
 
 - [x] Upload documents MVP: manual source endpoint, UTF-8 `.txt/.md/.csv` file upload, ingestion jobs, re-index API/UI и browser smoke есть.
-- [ ] Rich document ingestion: PDF/DOCX/URL crawler, real background queue workers и production retry policy.
-- [ ] URL crawler.
+- [x] Rich document ingestion: PDF/DOCX/URL crawler, real background queue workers и production retry policy.
+- [x] URL crawler.
 - [ ] iiko menu ingestion.
 - [ ] Chunking/embedding: chunking helper есть, нужны embeddings + Qdrant write path.
 - [ ] Qdrant retrieval.
-- [ ] Unresolved topics.
+- [x] Unresolved topics.
 
 ### EPIC-AGENT
 
@@ -731,13 +750,13 @@ Critical test cases:
 
 - [ ] Telegram.
 - [ ] Web widget.
-- [ ] WhatsApp.
-- [ ] VK.
-- [ ] Message normalization: mock chat endpoint создает conversation/messages, нужны реальные channel adapters.
+- [x] WhatsApp: integration webhook, challenge/verification, and message adapter with stateful deduplication.
+- [x] VK: community webhook confirmation and message adapter with stateful deduplication.
+- [x] Message normalization: WhatsApp and VK channel adapters parse updates, normalize them to MessageEvent, check billing limit, resolve customer, run orchestrator, and record chat turns.
 
 ### EPIC-INTEGRATIONS
 
-- [ ] iiko: adapter contract есть, нужна реальная API-интеграция и secrets.
+- [x] iiko: реальная интеграция с iikoCloud (авторизация, импорт номенклатуры/меню, создание заказов) реализована и протестирована.
 - [ ] r_keeper adapter.
 - [ ] AmoCRM.
 - [ ] Bitrix24.
@@ -747,12 +766,12 @@ Critical test cases:
 ### EPIC-FRONTEND
 
 - [ ] Marketing site: создан стартовый landing skeleton, требуется полный сайт.
-- [ ] Dashboard/settings: MVP UI flow, auth session cookies, security settings/MFA setup, live demo API wiring и mutation feedback есть; нужны analytics, team settings, billing settings и production tenant switch policy.
+- [/] Dashboard/settings: MVP UI flow, auth session cookies, security settings/MFA setup, live API wiring, team settings, API keys, analytics и mutation feedback есть; нужны billing settings и production tenant switch policy.
 - [ ] Agent builder: create/edit/test/publish flow пишет в Core API; нужны full visual builder, advanced validation, policy/knowledge binding и publish gates.
 - [ ] Pathway editor.
 - [x] Knowledge UI: create-source form, file upload, ingestion jobs, re-index action и browser smoke пишут в Core API.
 - [x] Test console: mock chat form пишет в Core API и открывает созданный conversation.
-- [ ] Analytics.
+- [x] Analytics.
 - [ ] Billing UI.
 
 ### EPIC-OPS

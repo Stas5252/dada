@@ -3,6 +3,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from app.api.v1.dependencies import find_tenant_for_agent
 from app.limiter import limiter
 from app.orchestrator import AgentOrchestrator
 from app.settings import Settings, get_settings
@@ -40,38 +41,48 @@ async def widget_chat(
     settings: Settings = Depends(get_settings),
     app_store: AppStore = Depends(get_app_store),
 ) -> WidgetChatResponse:
-    tenant_id_str = await _find_tenant_for_agent(agent_id, app_store)
+    tenant_id_str = find_tenant_for_agent(agent_id, app_store)
     if not tenant_id_str:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     tenant_uuid = UUID(tenant_id_str)
 
     from app.api.v1.dependencies import check_billing_limit
+    from app.channels import ChannelType, MessageEvent
 
     check_billing_limit(tenant_uuid, app_store)
     agent_uuid = UUID(agent_id)
 
-    # Use session_id to map to a stable conversation UUID
-    conversation_uuid = uuid5(NAMESPACE_URL, f"widget_session:{payload.session_id}:{agent_id}")
+    # Normalize incoming message to MessageEvent structure
+    event = MessageEvent(
+        channel=ChannelType.web_widget,
+        external_chat_id=payload.session_id,
+        sender_name=payload.customer_name or "Widget User",
+        text=payload.message,
+        raw_payload=payload.model_dump(),
+    )
+
+    # Use normalized session_id to map to a stable conversation UUID
+    conversation_uuid = uuid5(NAMESPACE_URL, f"widget_session:{event.external_chat_id}:{agent_id}")
 
     # Resolve or create customer
     customer = app_store.get_customer_by_external_id(
         tenant_id=tenant_uuid,
         channel="web_widget",
-        external_id=payload.session_id,
+        external_id=event.external_chat_id,
     )
     if not customer:
         customer = app_store.create_customer(
             tenant_id=tenant_uuid,
             channel="web_widget",
-            external_id=payload.session_id,
-            name=payload.customer_name,
+            external_id=event.external_chat_id,
+            name=event.sender_name,
             phone=payload.customer_phone,
         )
-    elif payload.customer_name or payload.customer_phone:
+    elif event.sender_name or payload.customer_phone:
         # Update existing customer if name or phone provided
         updates_needed = False
-        if payload.customer_name and customer.name != payload.customer_name:
+        if event.sender_name and customer.name != event.sender_name:
             updates_needed = True
         if payload.customer_phone and customer.phone != payload.customer_phone:
             updates_needed = True
@@ -80,7 +91,7 @@ async def widget_chat(
             updated = app_store.update_customer(
                 tenant_id=tenant_uuid,
                 customer_id=customer.id,
-                name=payload.customer_name or customer.name,
+                name=event.sender_name or customer.name,
                 phone=payload.customer_phone or customer.phone,
                 tags=customer.tags,
             )
@@ -94,7 +105,7 @@ async def widget_chat(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
-        customer_message=payload.message,
+        customer_message=event.text,
         channel="web_widget",
     )
     response_text = orchestrator_result.response_text
@@ -104,7 +115,7 @@ async def widget_chat(
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
         channel="web_widget",
-        customer_text=payload.message,
+        customer_text=event.text,
         agent_response_text=response_text,
         customer_id=customer.id,
         confidence_score=orchestrator_result.confidence_score,
@@ -112,29 +123,9 @@ async def widget_chat(
     if not recorded:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    return WidgetChatResponse(conversation_id=conversation_uuid, response=response_text, confidence=orchestrator_result.confidence_score)
+    return WidgetChatResponse(
+        conversation_id=conversation_uuid,
+        response=response_text,
+        confidence=orchestrator_result.confidence_score,
+    )
 
-
-async def _find_tenant_for_agent(agent_id: str, app_store: AppStore) -> str | None:
-    """
-    Find the tenant that owns a given agent.
-    Iterates through all tenants to find the agent.
-    """
-    try:
-        agent_uuid = UUID(agent_id)
-    except ValueError:
-        return None
-
-    if hasattr(app_store, "agents"):
-        agent = app_store.agents.get(agent_uuid)
-        if agent:
-            return str(agent.tenant_id)
-
-    from app.settings import get_settings
-
-    settings = get_settings()
-    agent = app_store.get_agent(UUID(settings.demo_tenant_id), agent_uuid)
-    if agent:
-        return settings.demo_tenant_id
-
-    return None

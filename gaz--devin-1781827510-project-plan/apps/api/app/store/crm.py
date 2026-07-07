@@ -647,7 +647,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
                 retry_delay_minutes=retry_delay_minutes
             )
             session.add(db_campaign)
-            session.commit()
+            session.flush()
             return Campaign.model_validate(db_campaign)
 
     def get_campaign(self, tenant_id: UUID, campaign_id: str) -> Campaign | None:
@@ -669,7 +669,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
             if not db_campaign or db_campaign.tenant_id != str(tenant_id):
                 return None
             db_campaign.status = status
-            session.commit()
+            session.flush()
             return Campaign.model_validate(db_campaign)
 
     def add_campaign_lead(self, tenant_id: UUID, campaign_id: str, phone: str, variables: dict[str, Any]) -> CampaignLead:
@@ -685,7 +685,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
                 attempts=0
             )
             session.add(db_lead)
-            session.commit()
+            session.flush()
             return CampaignLead.model_validate(db_lead)
 
     def list_campaign_leads(self, tenant_id: UUID, campaign_id: str) -> list[CampaignLead]:
@@ -709,7 +709,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
             if increment_attempt:
                 db_lead.attempts += 1
                 db_lead.last_attempt_at = func.now()
-            session.commit()
+            session.flush()
             return CampaignLead.model_validate(db_lead)
 
     def get_due_campaign_leads(self) -> list[CampaignLead]:

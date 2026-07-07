@@ -78,20 +78,15 @@ class TaskStatusUpdate(BaseModel):
     status: str
 
 
-def get_db_session_factory():
-    from app.database import build_engine, build_session_factory
-    settings = get_settings()
-    engine = build_engine(settings.database_url)
-    return build_session_factory(engine)
 
 
-def auto_create_lead(tenant_id: UUID, name: str, phone: str | None, email: str | None = None, source: str = "auto") -> CrmLeadModel | None:
+
+def auto_create_lead(tenant_id: UUID, name: str, phone: str | None, email: str | None = None, source: str = "auto", app_store: Any = None) -> CrmLeadModel | None:
     """Helper for orchestrator/action_engine to automatically create a lead if missing."""
     if not phone and not email:
         return None
     from uuid import uuid4
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         # Check if exists
         query = session.query(CrmLeadModel).filter(CrmLeadModel.tenant_id == str(tenant_id))
         if phone:
@@ -123,10 +118,10 @@ def auto_create_lead(tenant_id: UUID, name: str, phone: str | None, email: str |
 def create_lead(
     payload: LeadCreateRequest,
     tenant_id: str = Depends(MANAGE_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> LeadResponse:
     from uuid import uuid4
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         lead = CrmLeadModel(
             id=str(uuid4()),
             tenant_id=tenant_id,
@@ -145,9 +140,9 @@ def create_lead(
 @router.get("/leads", response_model=list[LeadResponse])
 def list_leads(
     tenant_id: str = Depends(READ_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> list[LeadResponse]:
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         leads = session.query(CrmLeadModel).filter(CrmLeadModel.tenant_id == tenant_id).order_by(CrmLeadModel.created_at.desc()).all()
         return [LeadResponse.model_validate(l) for l in leads]
 
@@ -156,10 +151,10 @@ def list_leads(
 def create_deal(
     payload: DealCreateRequest,
     tenant_id: str = Depends(MANAGE_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> DealResponse:
     from uuid import uuid4
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         deal = CrmDealModel(
             id=str(uuid4()),
             tenant_id=tenant_id,
@@ -179,9 +174,9 @@ def create_deal(
 @router.get("/deals", response_model=list[DealResponse])
 def list_deals(
     tenant_id: str = Depends(READ_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> list[DealResponse]:
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         deals = session.query(CrmDealModel).filter(CrmDealModel.tenant_id == tenant_id).order_by(CrmDealModel.created_at.desc()).all()
         return [DealResponse.model_validate(d) for d in deals]
 
@@ -191,9 +186,9 @@ def update_deal_status(
     deal_id: str,
     payload: DealStatusUpdate,
     tenant_id: str = Depends(MANAGE_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> DealResponse:
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         deal = session.query(CrmDealModel).filter(CrmDealModel.tenant_id == tenant_id, CrmDealModel.id == deal_id).first()
         if not deal:
             raise HTTPException(status_code=404, detail="Deal not found")
@@ -206,9 +201,9 @@ def update_deal_status(
 @router.get("/tasks", response_model=list[TaskResponse])
 def list_tasks(
     tenant_id: str = Depends(READ_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> list[TaskResponse]:
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         tasks = session.query(CrmTaskModel).filter(CrmTaskModel.tenant_id == tenant_id).order_by(CrmTaskModel.created_at.desc()).all()
         return [TaskResponse.model_validate(t) for t in tasks]
 
@@ -218,9 +213,9 @@ def update_task_status(
     task_id: str,
     payload: TaskStatusUpdate,
     tenant_id: str = Depends(MANAGE_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> TaskResponse:
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         task = session.query(CrmTaskModel).filter(CrmTaskModel.tenant_id == tenant_id, CrmTaskModel.id == task_id).first()
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -233,11 +228,11 @@ def update_task_status(
 @router.get("/leads/export", response_class=PlainTextResponse)
 def export_leads_csv(
     tenant_id: str = Depends(READ_CRM),
+    app_store: Any = Depends(get_app_store),
 ) -> str:
     import io
     import csv
-    factory = get_db_session_factory()
-    with session_scope(factory) as session:
+    with app_store._session_scope() as session:
         leads = session.query(CrmLeadModel).filter(CrmLeadModel.tenant_id == tenant_id).order_by(CrmLeadModel.created_at.desc()).all()
         
         output = io.StringIO()

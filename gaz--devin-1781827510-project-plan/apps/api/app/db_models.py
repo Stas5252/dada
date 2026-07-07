@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Boolean,
     UniqueConstraint,
     func,
 )
@@ -80,8 +81,8 @@ class UserModel(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
-    email_verified: Mapped[bool] = mapped_column(Integer, nullable=False, default=0)
-    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    totp_secret: Mapped[str | None] = mapped_column(EncryptedString(64), nullable=True)
     mfa_recovery_code_hashes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -172,6 +173,7 @@ class AgentModel(Base):
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.3)
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
     model_name: Mapped[str] = mapped_column(String(120), nullable=False, default="gpt-4o-mini")
+    reranker_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     telegram_bot_token: Mapped[str | None] = mapped_column(EncryptedString(255), nullable=True)
     pathway_nodes: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     pathway_edges: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)

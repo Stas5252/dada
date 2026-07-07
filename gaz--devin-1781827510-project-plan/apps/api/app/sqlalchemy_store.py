@@ -76,17 +76,17 @@ class SqlAlchemyStore(
         return audit_log
 
     def get_tenant(self, tenant_id: UUID) -> Tenant | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             tenant_model = session.get(TenantModel, str(tenant_id))
             return self._tenant_from_model(tenant_model) if tenant_model else None
 
     def list_all_tenants(self) -> list[Tenant]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.query(TenantModel).all()
             return [self._tenant_from_model(m) for m in models]
 
     def list_audit_logs(self, tenant_id: UUID) -> list[AuditLog]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(AuditLogModel)
                 .where(AuditLogModel.tenant_id == str(tenant_id))
@@ -113,7 +113,7 @@ class SqlAlchemyStore(
         token_secret: str,
         access_token_ttl_minutes: int = 15,
     ) -> tuple[Tenant, User, str] | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             user_model = session.scalar(select(UserModel).where(UserModel.email == email))
             if user_model is None:
                 return None

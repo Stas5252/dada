@@ -320,6 +320,7 @@ class Agent(TimestampedModel):
     temperature: float = 0.3
     max_tokens: int = 1024
     model_name: str = "gpt-4o-mini"
+    reranker_threshold: float = 0.0
     telegram_bot_token: str | None = None
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None
@@ -846,6 +847,7 @@ class AgentCreateRequest(BaseModel):
     temperature: float = 0.3
     max_tokens: int = 1024
     model_name: str = "gpt-4o-mini"
+    reranker_threshold: float = 0.0
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None
     business_profile: str = Field(default="", max_length=4000)
@@ -879,6 +881,7 @@ class AgentUpdateRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     model_name: str | None = None
+    reranker_threshold: float | None = None
     telegram_bot_token: str | None = None
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None

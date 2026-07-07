@@ -230,10 +230,21 @@ def find_tenant_for_agent(agent_id: str, app_store: AppStore) -> str | None:
     # For SqlAlchemyStore: query database globally to resolve tenant
     if hasattr(app_store, "session_factory"):
         from app.db_models import AgentModel
+        from sqlalchemy import text
         with app_store.session_factory() as session:
-            agent_model = session.get(AgentModel, str(agent_uuid))
-            if agent_model:
-                return str(agent_model.tenant_id)
+            bind = session.get_bind()
+            if bind.dialect.name == "postgresql":
+                # Use SECURITY DEFINER function to bypass RLS when looking up tenant for webhook
+                tenant_str = session.execute(
+                    text("SELECT get_tenant_for_agent_bypass_rls(:agent_id)"),
+                    {"agent_id": str(agent_uuid)}
+                ).scalar()
+                if tenant_str:
+                    return tenant_str
+            else:
+                agent_model = session.get(AgentModel, str(agent_uuid))
+                if agent_model:
+                    return str(agent_model.tenant_id)
 
     # Fallback: try demo tenant
     from app.settings import get_settings
@@ -243,20 +254,26 @@ def find_tenant_for_agent(agent_id: str, app_store: AppStore) -> str | None:
     if agent:
         return settings.demo_tenant_id
 
-    return None
-
 from collections.abc import AsyncGenerator
 
 async def set_webhook_tenant(
-    tenant_id: str | None = None,
-    settings: Settings = Depends(get_settings)
+    request: Request,
+    app_store: AppStore = Depends(get_app_store),
 ) -> AsyncGenerator[str, None]:
     """Dependency to set RLS tenant context for webhooks."""
     from app.context import current_tenant_id
-    actual_tenant_id = tenant_id or settings.demo_tenant_id
-    token = current_tenant_id.set(actual_tenant_id)
+    
+    agent_id = request.path_params.get("agent_id")
+    tenant_id = find_tenant_for_agent(agent_id, app_store) if agent_id else None
+    
+    if not tenant_id:
+        # Fallback to demo tenant if no agent_id or not found (e.g. general webhook)
+        from app.settings import get_settings
+        tenant_id = get_settings().demo_tenant_id
+        
+    token = current_tenant_id.set(tenant_id)
     try:
-        yield actual_tenant_id
+        yield tenant_id
     finally:
         current_tenant_id.reset(token)
 

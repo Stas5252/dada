@@ -305,7 +305,11 @@ class ActionEngineExecutor:
                     "email": lead.email,
                     "source": lead.source
                 }
-                asyncio.create_task(trigger_crm_webhook(str(tenant_id), lead_data, webhook_url))
+                try:
+                    asyncio.create_task(trigger_crm_webhook(str(tenant_id), lead_data, webhook_url))
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).error("Failed to schedule CRM webhook", exc_info=exc)
                 
                 return {
                     "success": True,
@@ -321,13 +325,10 @@ class ActionEngineExecutor:
             title = _payload_str(payload, "title", "Новая сделка")
             amount_minor = _payload_int(payload, "amount", 0)
             
-            from app.api.v1.crm import get_db_session_factory
-            from app.database import session_scope
             from app.db_models import CrmDealModel
             from uuid import uuid4
             
-            factory = get_db_session_factory()
-            with session_scope(factory) as session:
+            with app_store._session_scope() as session:
                 deal = CrmDealModel(
                     id=str(uuid4()),
                     tenant_id=str(tenant_id),
@@ -350,16 +351,14 @@ class ActionEngineExecutor:
             customer_name = _payload_str(payload, "customer_name", "Клиент")
             customer_phone = _payload_str(payload, "customer_phone", "")
             
-            from app.api.v1.crm import auto_create_lead, get_db_session_factory
-            from app.database import session_scope
+            from app.api.v1.crm import auto_create_lead
             from app.db_models import CrmTaskModel
             from uuid import uuid4
             
-            lead = auto_create_lead(tenant_id, customer_name, customer_phone, None, "appointment")
+            lead = auto_create_lead(tenant_id, customer_name, customer_phone, None, "appointment", app_store)
             lead_id = lead.id if lead else None
             
-            factory = get_db_session_factory()
-            with session_scope(factory) as session:
+            with app_store._session_scope() as session:
                 task = CrmTaskModel(
                     id=str(uuid4()),
                     tenant_id=str(tenant_id),
@@ -376,13 +375,10 @@ class ActionEngineExecutor:
             
         if tool_name == "create_task":
             title = _payload_str(payload, "title")
-            from app.api.v1.crm import get_db_session_factory
-            from app.database import session_scope
             from app.db_models import CrmTaskModel
             from uuid import uuid4
             
-            factory = get_db_session_factory()
-            with session_scope(factory) as session:
+            with app_store._session_scope() as session:
                 task = CrmTaskModel(
                     id=str(uuid4()),
                     tenant_id=str(tenant_id),

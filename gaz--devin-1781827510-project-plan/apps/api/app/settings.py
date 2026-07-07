@@ -58,9 +58,9 @@ class Settings(BaseSettings):
     )
     api_public_url: str = Field(default="http://localhost:8000", alias="API_PUBLIC_URL")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
-    deepgram_api_key: str = Field(default="", alias="DEEPGRAM_API_KEY")
     yandex_api_key: str = Field(default="", alias="YANDEX_API_KEY")
     crm_webhook_url: str = Field(default="", alias="CRM_WEBHOOK_URL")
+    webhook_signing_secret: str = Field(default="dev-webhook-secret", alias="WEBHOOK_SIGNING_SECRET")
 
     # Payment / YooKassa
     billing_test_mode: bool = Field(default=True, alias="BILLING_TEST_MODE")
@@ -108,9 +108,15 @@ class Settings(BaseSettings):
     @property
     def effective_qdrant_url(self) -> str:
         """Return :memory: for local/test when QDRANT_URL is not set."""
-        if not self.qdrant_url and self.app_env in ("local", "test", "development"):
-            return ":memory:"
-        return self.qdrant_url
+        url = self.qdrant_url
+        if not url:
+            if self.app_env in ("local", "test", "development"):
+                return ":memory:"
+            else:
+                raise ValueError("QDRANT_URL is required for non-local environments.")
+        if url == ":memory:" and self.app_env not in ("local", "test", "development"):
+            raise ValueError("QDRANT_URL cannot be ':memory:' in non-local environments.")
+        return url
 
 
 @lru_cache

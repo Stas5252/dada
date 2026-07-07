@@ -258,6 +258,7 @@ def retrieve_sources(
     collection_name: str,
     vector_size: int = DEFAULT_QDRANT_VECTOR_SIZE,
     limit: int = 3,
+    reranker_threshold: float = 0.0,
 ) -> list[RetrievalResult]:
     if not query.strip():
         return []
@@ -302,8 +303,8 @@ def retrieve_sources(
     ranked_results: list[RetrievalResult] = []
     for point, score in zip(search_result.points, scores, strict=False):
         # Confidence gating: "no answer policy" if score is too low
-        # For production with cross-encoder, >0 is usually relevant. We use 0.0 as threshold.
-        if score < 0.0:
+        # For production with cross-encoder, >0 is usually relevant.
+        if score < reranker_threshold:
             continue
 
         payload = point.payload or {}

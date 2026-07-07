@@ -1,8 +1,11 @@
 import io
 from collections.abc import AsyncGenerator
 from typing import Literal, cast
+import logging
 
 from app.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 OpenAITTSResponseFormat = Literal["mp3", "opus", "aac", "flac", "wav", "pcm"]
 
@@ -33,7 +36,7 @@ class SpeechService:
             )
             return response.text
         except Exception as e:
-            print(f"STT Error: {e}")
+            logger.error(f"STT Error: {e}")
             return f"[STT Error: {e}]"
 
     async def text_to_speech(self, text: str, voice: str = "alloy") -> bytes:
@@ -55,7 +58,7 @@ class SpeechService:
             )
             return response.content
         except Exception as e:
-            print(f"TTS Error: {e}")
+            logger.error(f"TTS Error: {e}")
             return b""
 
 
@@ -271,7 +274,7 @@ class OpenAIStreamingTTS(StreamingTTS):
                     mulaw_chunk = audioop.lin2ulaw(pcm_8k, 2)
                     yield mulaw_chunk
         except Exception as e:
-            print(f"Streaming TTS Error: {e}")
+            logger.error(f"Streaming TTS Error: {e}")
             yield b""
 
 
@@ -306,7 +309,7 @@ class YandexStreamingSTT(StreamingSTT):
                     if text:
                         await self.queue.put((True, text))
                 except Exception as e:
-                    print(f"Yandex STT Error: {e}")
+                    logger.error(f"Yandex STT Error: {e}")
 
     async def receive_transcript(self) -> tuple[bool, str]:
         return await self.queue.get()
@@ -360,7 +363,7 @@ class YandexStreamingTTS(StreamingTTS):
                         mulaw_chunk = audioop.lin2ulaw(padded_leftover, 2)
                         yield mulaw_chunk
             except Exception as e:
-                print(f"Yandex TTS Error: {e}")
+                logger.error(f"Yandex TTS Error: {e}")
                 yield b""
 
 def get_speech_service() -> SpeechService:

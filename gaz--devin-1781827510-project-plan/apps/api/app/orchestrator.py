@@ -167,6 +167,7 @@ class AgentOrchestrator:
                     tenant_id=tenant_id,
                     query=customer_message,
                     collection_name=settings.qdrant_collection_name,
+                    reranker_threshold=agent.reranker_threshold,
                 )
             voice_max_tokens = 150 if channel in ["voice", "sip", "asterisk"] else None
 

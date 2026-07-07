@@ -63,9 +63,11 @@ def get_billing_service() -> BillingService:
 
 
 def get_webhook_signer(tenant_id: str) -> LocalWebhookSigner:
+    from app.settings import get_settings
+    settings = get_settings()
     return LocalWebhookSigner(
         config=WebhookSigningConfig(tenant_id=tenant_id, key_id="local-default"),
-        signing_key=b"local-webhook-signing-key",
+        signing_key=settings.webhook_signing_secret.encode(),
     )
 
 

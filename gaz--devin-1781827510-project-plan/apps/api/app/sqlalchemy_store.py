@@ -177,12 +177,17 @@ class SqlAlchemyStore(
             return self._tenant_from_model(tenant_model)
 
     def update_tenant_settings(self, tenant_id: UUID, settings: dict[str, object]) -> Tenant | None:
+        from app.encryption import encrypt_json_secrets
+        
         with self._session_scope() as session:
             tenant_model = session.get(TenantModel, str(tenant_id))
             if not tenant_model:
                 return None
+                
+            encrypted_settings = encrypt_json_secrets(settings, self.settings.fernet_key)
             current_settings = tenant_model.settings or {}
-            tenant_model.settings = {**current_settings, **settings}
+            
+            tenant_model.settings = {**current_settings, **encrypted_settings}
             session.flush()
             return self._tenant_from_model(tenant_model)
 

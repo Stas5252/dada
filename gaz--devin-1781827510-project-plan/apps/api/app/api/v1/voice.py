@@ -22,7 +22,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 
-from app.api.v1.dependencies import require_tenant_permission
+from app.api.v1.dependencies import require_tenant_permission, set_webhook_tenant
 from app.channel_policy import (
     audit_channel_policy_consent_block,
     audit_channel_policy_outbound_block,
@@ -377,7 +377,7 @@ async def _validate_twilio_request(request: Request, auth_token: str) -> None:
 async def twilio_voice_webhook(
     request: Request,
     agent_id: str,
-    tenant_id: str | None = None,
+    tenant_id: str = Depends(set_webhook_tenant),
     CallSid: str = Form(...),
     SpeechResult: str | None = Form(None),
     app_store: AppStore = Depends(get_app_store),
@@ -387,9 +387,7 @@ async def twilio_voice_webhook(
     """Handle incoming call webhook from Twilio."""
     await _validate_twilio_request(request, settings.twilio_auth_token)
     
-    # Fallback to demo tenant if none provided
-    if not tenant_id:
-        tenant_id = settings.demo_tenant_id
+    
 
     tenant_uuid = UUID(tenant_id)
     agent_uuid = UUID(agent_id)
@@ -483,7 +481,7 @@ async def twilio_voice_webhook(
 async def twilio_sms_webhook(
     request: Request,
     agent_id: str,
-    tenant_id: str | None = None,
+    tenant_id: str = Depends(set_webhook_tenant),
     From: str = Form(...),
     Body: str = Form(...),
     MessageSid: str = Form(...),
@@ -493,8 +491,7 @@ async def twilio_sms_webhook(
     """Handle incoming SMS from Twilio."""
     await _validate_twilio_request(request, settings.twilio_auth_token)
     
-    if not tenant_id:
-        tenant_id = settings.demo_tenant_id
+    
 
     tenant_uuid = UUID(tenant_id)
     agent_uuid = UUID(agent_id)
@@ -587,7 +584,7 @@ async def twilio_sms_webhook(
 async def voice_websocket_stream(
     websocket: WebSocket,
     agent_id: str,
-    tenant_id: str | None = None,
+    tenant_id: str = Depends(set_webhook_tenant),
     app_store: AppStore = Depends(get_app_store),
     settings: Settings = Depends(get_settings),
     speech_service: SpeechService = Depends(get_speech_service),
@@ -595,8 +592,7 @@ async def voice_websocket_stream(
 ) -> None:
     """Real-time voice streaming WebSocket connection."""
     await websocket.accept()
-    if not tenant_id:
-        tenant_id = settings.demo_tenant_id
+    
 
     tenant_uuid = UUID(tenant_id)
 
@@ -713,7 +709,7 @@ async def voice_websocket_stream(
 async def twilio_media_stream_websocket(
     websocket: WebSocket,
     agent_id: str,
-    tenant_id: str | None = None,
+    tenant_id: str = Depends(set_webhook_tenant),
     app_store: AppStore = Depends(get_app_store),
     settings: Settings = Depends(get_settings),
     speech_service: SpeechService = Depends(get_speech_service),
@@ -725,8 +721,7 @@ async def twilio_media_stream_websocket(
     """Real-time Twilio Media Stream WebSocket connection with Full-duplex and Barge-in."""
     await websocket.accept()
     session_start_time = datetime.now(UTC)
-    if not tenant_id:
-        tenant_id = settings.demo_tenant_id
+    
 
     tenant_uuid = UUID(tenant_id)
     from app.api.v1.dependencies import check_billing_limit

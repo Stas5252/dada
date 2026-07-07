@@ -371,18 +371,13 @@ class BillingStoreMixin(BaseSqlAlchemyStore):
 
     @staticmethod
     def _tenant_from_model(model: TenantModel) -> Tenant:
-        from app.encryption import decrypt_token
+        from app.encryption import decrypt_json_secrets
         from app.settings import get_settings
         
-        settings = model.settings if isinstance(model.settings, dict) else {}
+        settings_dict = model.settings if isinstance(model.settings, dict) else {}
+        secret = get_settings().fernet_key
         
-        # We don't want to mutate the model's settings dict, so we copy it
-        parsed_settings = dict(settings)
-        if "vk_group_token" in parsed_settings and parsed_settings["vk_group_token"]:
-            secret = get_settings().access_token_secret
-            decrypted = decrypt_token(str(parsed_settings["vk_group_token"]), secret)
-            if decrypted:
-                parsed_settings["vk_group_token"] = decrypted
+        parsed_settings = decrypt_json_secrets(settings_dict, secret)
 
         return Tenant(
             id=UUID(model.id),

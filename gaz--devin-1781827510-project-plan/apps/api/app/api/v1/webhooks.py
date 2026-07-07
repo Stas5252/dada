@@ -1,9 +1,9 @@
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from fastapi import HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response, Depends
 from fastapi.responses import JSONResponse
 
-from app.api.v1.dependencies import check_billing_limit, find_tenant_for_agent
+from app.api.v1.dependencies import check_billing_limit, find_tenant_for_agent, set_webhook_tenant
 from app.channel_policy import (
     append_channel_opt_out_notice,
     audit_channel_policy_auto_reply_block,
@@ -23,7 +23,7 @@ async def generic_webhook_handler(
     settings: Settings,
     app_store: AppStore,
     agent_id: str | None = None,
-    tenant_id: str | None = None,
+    tenant_id: str = Depends(set_webhook_tenant),
 ) -> Response | dict[str, str]:
     """
     Generic webhook pipeline for processing incoming messages from various channels.

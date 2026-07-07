@@ -317,7 +317,7 @@ class AgentsStoreMixin(BaseSqlAlchemyStore):
         return agent
 
     def list_agents(self, tenant_id: UUID) -> list[Agent]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             agent_models = session.scalars(
                 select(AgentModel).where(AgentModel.tenant_id == str(tenant_id))
             ).all()
@@ -503,14 +503,14 @@ class AgentsStoreMixin(BaseSqlAlchemyStore):
         return stored_source
 
     def get_knowledge_source(self, tenant_id: UUID, source_id: UUID) -> KnowledgeSource | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             source_model = session.get(KnowledgeSourceModel, str(source_id))
             if source_model is None or source_model.tenant_id != str(tenant_id):
                 return None
             return self._knowledge_source_from_model(source_model)
 
     def list_knowledge_sources(self, tenant_id: UUID) -> list[KnowledgeSource]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             source_models = session.scalars(
                 select(KnowledgeSourceModel).where(KnowledgeSourceModel.tenant_id == str(tenant_id))
             ).all()
@@ -526,7 +526,7 @@ class AgentsStoreMixin(BaseSqlAlchemyStore):
         )
 
     def list_ingestion_jobs(self, tenant_id: UUID) -> list[KnowledgeIngestionJob]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             job_models = session.scalars(
                 select(KnowledgeIngestionJobModel).where(
                     KnowledgeIngestionJobModel.tenant_id == str(tenant_id)
@@ -572,7 +572,7 @@ class AgentsStoreMixin(BaseSqlAlchemyStore):
         tenant_id: UUID,
         job_id: UUID,
     ) -> KnowledgeIngestionJob | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             job_model = session.get(KnowledgeIngestionJobModel, str(job_id))
             if job_model is None or job_model.tenant_id != str(tenant_id):
                 return None
@@ -655,7 +655,7 @@ class AgentsStoreMixin(BaseSqlAlchemyStore):
         )
 
     def get_agent(self, tenant_id: UUID, agent_id: UUID) -> Agent | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             agent_model = session.get(AgentModel, str(agent_id))
             if agent_model is None or agent_model.tenant_id != str(tenant_id):
                 return None

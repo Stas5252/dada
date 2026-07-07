@@ -351,12 +351,12 @@ class AuthStoreMixin(BaseSqlAlchemyStore):
             return True
 
     def get_user(self, user_id: UUID) -> User | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             user_model = session.get(UserModel, str(user_id))
             return self._user_from_model(session, user_model) if user_model else None
 
     def get_user_by_email(self, email: str) -> User | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             user_model = session.scalar(select(UserModel).where(UserModel.email == email))
             return self._user_from_model(session, user_model) if user_model else None
 
@@ -474,7 +474,7 @@ class AuthStoreMixin(BaseSqlAlchemyStore):
             return True
 
     def list_tenant_users(self, tenant_id: UUID) -> list[User]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             user_models = session.scalars(
                 select(UserModel).where(UserModel.tenant_id == str(tenant_id))
             ).all()
@@ -573,7 +573,7 @@ class AuthStoreMixin(BaseSqlAlchemyStore):
             )
 
     def list_api_keys(self, tenant_id: UUID) -> list[ApiKey]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(ApiKeyModel).where(ApiKeyModel.tenant_id == str(tenant_id))
             ).all()

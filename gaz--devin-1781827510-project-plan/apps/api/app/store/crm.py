@@ -262,7 +262,7 @@ def _is_refresh_session_model_usable(
 
 class CrmStoreMixin(BaseSqlAlchemyStore):
     def get_customer(self, tenant_id: UUID, customer_id: UUID) -> Customer | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             customer_model = session.get(CustomerModel, str(customer_id))
             if customer_model is None or customer_model.tenant_id != str(tenant_id):
                 return None
@@ -271,7 +271,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
     def get_customer_by_external_id(
         self, tenant_id: UUID, channel: str, external_id: str
     ) -> Customer | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             model = session.scalar(
                 select(CustomerModel).where(
                     CustomerModel.tenant_id == str(tenant_id),
@@ -435,7 +435,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
         if not candidates:
             return None
 
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             for candidate_channel, candidate_type, candidate_value in candidates:
                 stmt = select(ContactSuppressionModel).where(
                     ContactSuppressionModel.tenant_id == str(tenant_id),
@@ -451,7 +451,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
         return None
 
     def list_contact_suppressions(self, tenant_id: UUID) -> list[ContactSuppression]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(ContactSuppressionModel)
                 .where(ContactSuppressionModel.tenant_id == str(tenant_id))
@@ -577,7 +577,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
 
         normalized_consent_type = _normalize_consent_type(consent_type)
         now = datetime.now(UTC)
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             for candidate_channel, candidate_type, candidate_value in candidates:
                 stmt = select(ContactConsentModel).where(
                     ContactConsentModel.tenant_id == str(tenant_id),
@@ -596,7 +596,7 @@ class CrmStoreMixin(BaseSqlAlchemyStore):
         return None
 
     def list_contact_consents(self, tenant_id: UUID) -> list[ContactConsent]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(ContactConsentModel)
                 .where(ContactConsentModel.tenant_id == str(tenant_id))

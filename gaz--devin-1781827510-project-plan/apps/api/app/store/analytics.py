@@ -332,7 +332,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
             return self._test_case_from_model(model)
 
     def list_test_cases(self, tenant_id: UUID, agent_id: UUID) -> list[TestCase]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(TestCaseModel).where(
                     TestCaseModel.tenant_id == str(tenant_id),
@@ -342,7 +342,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
             return [self._test_case_from_model(m) for m in models]
 
     def get_test_case(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID) -> TestCase | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             model = session.get(TestCaseModel, str(test_case_id))
             if model and model.tenant_id == str(tenant_id) and model.agent_id == str(agent_id):
                 return self._test_case_from_model(model)
@@ -375,7 +375,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
             return self._test_run_from_model(model)
 
     def list_test_runs(self, tenant_id: UUID, agent_id: UUID, test_case_id: UUID | None = None) -> list[TestRun]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             stmt = select(TestRunModel).where(
                 TestRunModel.tenant_id == str(tenant_id),
                 TestRunModel.agent_id == str(agent_id)
@@ -389,7 +389,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
     # Inbox & Handoff
     def get_analytics_overview(self, tenant_id: UUID) -> dict[str, Any]:
         """Fetch optimized analytics overview directly via SQL."""
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             # Basic counts by status
             status_counts = session.execute(
                 select(ConversationModel.status, func.count(ConversationModel.id))
@@ -491,7 +491,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
 
     def get_margin_dashboard(self, tenant_id: UUID) -> dict[str, Any]:
         """Fetch margin dashboard stats (Revenue vs Costs)."""
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             # Revenue = Sum of all won deals
             revenue = session.scalar(
                 select(func.sum(CrmDealModel.amount_minor))
@@ -530,7 +530,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
             session.add(model)
 
     def get_qa_evaluations(self, tenant_id: UUID, conversation_id: UUID) -> list[QAEvaluation]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(QAEvaluationModel)
                 .where(QAEvaluationModel.tenant_id == str(tenant_id))
@@ -552,7 +552,7 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
             session.add(model)
 
     def list_weekly_reports(self, tenant_id: UUID) -> list[WeeklyReport]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             models = session.scalars(
                 select(WeeklyReportModel)
                 .where(WeeklyReportModel.tenant_id == str(tenant_id))

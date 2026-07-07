@@ -244,3 +244,19 @@ def find_tenant_for_agent(agent_id: str, app_store: AppStore) -> str | None:
         return settings.demo_tenant_id
 
     return None
+
+from collections.abc import AsyncGenerator
+
+async def set_webhook_tenant(
+    tenant_id: str | None = None,
+    settings: Settings = Depends(get_settings)
+) -> AsyncGenerator[str, None]:
+    """Dependency to set RLS tenant context for webhooks."""
+    from app.context import current_tenant_id
+    actual_tenant_id = tenant_id or settings.demo_tenant_id
+    token = current_tenant_id.set(actual_tenant_id)
+    try:
+        yield actual_tenant_id
+    finally:
+        current_tenant_id.reset(token)
+

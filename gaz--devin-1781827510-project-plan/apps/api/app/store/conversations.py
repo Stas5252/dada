@@ -268,7 +268,7 @@ class ConversationsStoreMixin(BaseSqlAlchemyStore):
         status: str | None = None,
         channel: str | None = None,
     ) -> list[Conversation]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             stmt = select(ConversationModel).where(ConversationModel.tenant_id == str(tenant_id))
             if status:
                 stmt = stmt.where(ConversationModel.status == status)
@@ -280,7 +280,7 @@ class ConversationsStoreMixin(BaseSqlAlchemyStore):
             return [self._conversation_from_model(model) for model in conversation_models]
 
     def count_messages(self, tenant_id: UUID, since: datetime | None = None) -> int:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             stmt = select(func.count(MessageModel.id)).where(
                 MessageModel.tenant_id == str(tenant_id)
             )
@@ -429,7 +429,7 @@ class ConversationsStoreMixin(BaseSqlAlchemyStore):
 
         # Visual Pathway Graph interpretation fallback
         if agent_response_text is None:
-            with self.session_factory() as session:
+            with self._session_scope() as session:
                 message_models = session.scalars(
                     select(MessageModel).where(MessageModel.conversation_id == str(conversation_id))
                 ).all()
@@ -522,7 +522,7 @@ class ConversationsStoreMixin(BaseSqlAlchemyStore):
         tenant_id: UUID,
         conversation_id: UUID,
     ) -> tuple[Conversation, list[Message], list[KnowledgeSource]] | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             conversation_model = session.get(ConversationModel, str(conversation_id))
             if conversation_model is None or conversation_model.tenant_id != str(tenant_id):
                 return None
@@ -603,7 +603,7 @@ class ConversationsStoreMixin(BaseSqlAlchemyStore):
             return self._conversation_from_model(conversation_model)
 
     def get_conversation(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             conversation_model = session.get(ConversationModel, str(conversation_id))
             if conversation_model is None or conversation_model.tenant_id != str(tenant_id):
                 return None
@@ -704,7 +704,7 @@ class ConversationsStoreMixin(BaseSqlAlchemyStore):
         handoff_status: str | None = None,
         assigned_user_id: str | None = None
     ) -> list[InboxConversation]:
-        with self.session_factory() as session:
+        with self._session_scope() as session:
             stmt = select(ConversationModel).where(ConversationModel.tenant_id == str(tenant_id))
             if handoff_status:
                 stmt = stmt.where(ConversationModel.handoff_status == handoff_status)

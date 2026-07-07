@@ -1,6 +1,27 @@
+from uuid import UUID
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.schemas import TestCaseStatus as CaseStatus
+from app.store_factory import get_app_store
+
+
+def _record_passing_testbed_run(tenant_id: str, agent_id: str, test_case_id: str) -> None:
+    store = get_app_store()
+    run = store.create_test_run(UUID(tenant_id), UUID(agent_id), UUID(test_case_id))
+    updated_run = store.update_test_run(
+        UUID(tenant_id),
+        UUID(agent_id),
+        run.id,
+        CaseStatus.passed,
+        logs=[
+            {"role": "customer", "content": "Hello"},
+            {"role": "agent", "content": "Hello, how can I help?"},
+        ],
+        result_summary="Expected outcome achieved.",
+    )
+    assert updated_run is not None
 
 
 def test_core_mvp_chat_flow() -> None:
@@ -43,6 +64,30 @@ def test_core_mvp_chat_flow() -> None:
     assert agent_response.status_code == 201
     agent_id = agent_response.json()["id"]
 
+    blocked_publish_response = client.post(f"/api/v1/agents/{agent_id}/publish", headers=headers)
+    assert blocked_publish_response.status_code == 409
+    blocked_detail = blocked_publish_response.json()["detail"]
+    assert blocked_detail["error_code"] == "TESTBED_PUBLISH_GATE_FAILED"
+    assert blocked_detail["failures"][0]["code"] == "no_test_cases"
+
+    test_case_response = client.post(
+        f"/api/v1/agents/{agent_id}/testbed/cases",
+        headers=headers,
+        json={
+            "name": "Pizza greeting",
+            "scenario": "Customer asks for pizza delivery help.",
+            "expected_outcome": "Agent greets the customer and offers delivery help.",
+        },
+    )
+    assert test_case_response.status_code == 201
+    test_case_id = test_case_response.json()["id"]
+
+    missing_run_response = client.post(f"/api/v1/agents/{agent_id}/publish", headers=headers)
+    assert missing_run_response.status_code == 409
+    assert missing_run_response.json()["detail"]["failures"][0]["code"] == "missing_run"
+
+    _record_passing_testbed_run(tenant_id, agent_id, test_case_id)
+
     publish_response = client.post(f"/api/v1/agents/{agent_id}/publish", headers=headers)
     assert publish_response.status_code == 200
     assert publish_response.json()["status"] == "published"
@@ -67,6 +112,12 @@ def test_core_mvp_chat_flow() -> None:
     assert update_response.json()["channel"] == "web_widget"
     assert update_response.json()["status"] == "draft"
     assert update_response.json()["version"] == 2
+
+    stale_publish_response = client.post(f"/api/v1/agents/{agent_id}/publish", headers=headers)
+    assert stale_publish_response.status_code == 409
+    assert stale_publish_response.json()["detail"]["failures"][0]["code"] == "stale_run"
+
+    _record_passing_testbed_run(tenant_id, agent_id, test_case_id)
 
     republish_response = client.post(f"/api/v1/agents/{agent_id}/publish", headers=headers)
     assert republish_response.status_code == 200

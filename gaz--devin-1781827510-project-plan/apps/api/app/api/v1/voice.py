@@ -22,6 +22,11 @@ from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 
 from app.api.v1.dependencies import require_tenant_permission
+from app.channel_policy import (
+    audit_channel_policy_consent_block,
+    audit_channel_policy_outbound_block,
+    channel_policy_for_settings,
+)
 from app.contracts.voice import (
     InvalidVoiceTransition,
     VoiceSession,
@@ -161,6 +166,8 @@ async def preview_voice_turn(
         customer_text=payload.text,
         agent_response_text=response_text,
         confidence_score=orchestrator_result.confidence_score,
+        forced_status=orchestrator_result.forced_status,
+        forced_resolution_status=orchestrator_result.forced_resolution_status,
     )
 
     return VoicePreviewTurnResponse(
@@ -240,6 +247,8 @@ async def process_voice_audio(
         customer_text=customer_text,
         agent_response_text=response_text,
         confidence_score=orchestrator_result.confidence_score,
+        forced_status=orchestrator_result.forced_status,
+        forced_resolution_status=orchestrator_result.forced_resolution_status,
     )
 
     # 3. TTS
@@ -271,10 +280,71 @@ async def initiate_call(
     tenant = app_store.get_tenant(tenant_uuid)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    channel_policy = channel_policy_for_settings(tenant.settings, "voice")
+    if not channel_policy.outbound_enabled:
+        audit_channel_policy_outbound_block(
+            app_store,
+            tenant_id=tenant_uuid,
+            channel="voice",
+            conversation_id=uuid5(NAMESPACE_URL, f"outbound_call:{payload.agent_id}:{payload.to_number}"),
+            source="outbound_call",
+            policy=channel_policy,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Outbound calls are disabled by channel policy",
+        )
 
     from app.api.v1.dependencies import check_billing_limit
 
     check_billing_limit(tenant_uuid, app_store)
+
+    suppression = app_store.find_contact_suppression(
+        tenant_uuid,
+        "voice",
+        phone=payload.to_number,
+    )
+    if suppression:
+        app_store.create_audit_log(
+            event_type="contact_suppression.outbound_blocked",
+            tenant_id=tenant_uuid,
+            details={
+                "channel": "voice",
+                "contact_type": suppression.contact_type,
+                "source": "outbound_call",
+                "suppression_id": str(suppression.id),
+                "value": suppression.value,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contact has opted out of outbound calls",
+        )
+
+    if channel_policy.require_contact_consent_for_outbound:
+        consent = app_store.find_contact_consent(
+            tenant_uuid,
+            "voice",
+            phone=payload.to_number,
+        )
+        if not consent:
+            audit_channel_policy_consent_block(
+                app_store,
+                tenant_id=tenant_uuid,
+                channel="voice",
+                conversation_id=uuid5(
+                    NAMESPACE_URL,
+                    f"outbound_call:{payload.agent_id}:{payload.to_number}",
+                ),
+                source="outbound_call",
+                policy=channel_policy,
+                contact_type="phone",
+                value=payload.to_number,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Outbound consent is required by channel policy",
+            )
 
     call_sid = await trigger_outbound_call(
         tenant_id=tenant_id,
@@ -387,6 +457,8 @@ async def twilio_voice_webhook(
         customer_text=SpeechResult,
         agent_response_text=response_text,
         confidence_score=orchestrator_result.confidence_score,
+        forced_status=orchestrator_result.forced_status,
+        forced_resolution_status=orchestrator_result.forced_resolution_status,
     )
     try:
         service.record_voice_turn(
@@ -424,6 +496,25 @@ async def twilio_sms_webhook(
 
     tenant = app_store.get_tenant(tenant_uuid)
     tenant_settings = tenant.settings if tenant else {}
+
+    existing_suppression = app_store.find_contact_suppression(
+        tenant_uuid,
+        "sms",
+        phone=From,
+    )
+    if existing_suppression:
+        app_store.create_audit_log(
+            event_type="contact_suppression.inbound_ignored",
+            tenant_id=tenant_uuid,
+            details={
+                "channel": "sms",
+                "contact_type": existing_suppression.contact_type,
+                "source": "twilio_sms_webhook",
+                "suppression_id": str(existing_suppression.id),
+                "value": existing_suppression.value,
+            },
+        )
+        return Response(content="<Response/>", media_type="application/xml")
 
     from app.api.v1.dependencies import check_billing_limit
 
@@ -463,7 +554,19 @@ async def twilio_sms_webhook(
         customer_text=Body,
         agent_response_text=response_text,
         confidence_score=orchestrator_result.confidence_score,
+        forced_status=orchestrator_result.forced_status,
+        forced_resolution_status=orchestrator_result.forced_resolution_status,
     )
+
+    if orchestrator_result.guardrail_code == "opt_out_requested":
+        app_store.record_contact_suppression(
+            tenant_uuid,
+            "sms",
+            "phone",
+            From,
+            reason="opt_out_requested",
+            source="twilio_sms_guardrail",
+        )
 
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -546,6 +649,8 @@ async def voice_websocket_stream(
                                 customer_text=customer_text,
                                 agent_response_text=response_text,
                                 confidence_score=orchestrator_result.confidence_score,
+                                forced_status=orchestrator_result.forced_status,
+                                forced_resolution_status=orchestrator_result.forced_resolution_status,
                             )
                             try:
                                 service.record_voice_turn(
@@ -699,6 +804,8 @@ async def twilio_media_stream_websocket(
                         customer_text=customer_text,
                         agent_response_text=response_text,
                         confidence_score=orchestrator_result.confidence_score,
+                        forced_status=orchestrator_result.forced_status,
+                        forced_resolution_status=orchestrator_result.forced_resolution_status,
                     )
                     try:
                         service.record_voice_turn(

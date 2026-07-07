@@ -42,7 +42,7 @@ class OperatorConnectionManager:
             else:
                 logger.info("Operator disconnected from tenant %s. Total for tenant: %d", tenant_id, len(self._connections[tenant_id]))
 
-    async def broadcast_to_tenant(self, tenant_id: str, event: str, data: dict) -> None:
+    async def broadcast_to_tenant(self, tenant_id: str, event: str, data: dict[str, object]) -> None:
         """Send an event to all connected operators for a specific tenant."""
         if tenant_id not in self._connections:
             return

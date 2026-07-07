@@ -1,5 +1,18 @@
 # Documentation index
 
+## Production docs
+
+- [`PROJECT_AUDIT.md`](PROJECT_AUDIT.md)
+- [`PRODUCTION_READINESS_REPORT.md`](PRODUCTION_READINESS_REPORT.md)
+- [`COMPETITOR_BENCHMARK.md`](COMPETITOR_BENCHMARK.md)
+- [`PRODUCT.md`](PRODUCT.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`API.md`](API.md)
+- [`ENVIRONMENT.md`](ENVIRONMENT.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`TESTING.md`](TESTING.md)
+- [`DEPLOYMENT.md`](DEPLOYMENT.md)
+
 ## Strategy and roadmap
 
 - [`strategy/README.md`](strategy/README.md)
@@ -22,6 +35,7 @@
 - [`strategy/17-real-cost-calculation.md`](strategy/17-real-cost-calculation.md)
 - [`strategy/18-competitor-feature-benchmark-2026-06-20.md`](strategy/18-competitor-feature-benchmark-2026-06-20.md)
 - [`strategy/19-bland-parity-gap-and-next-steps-2026-06-21.md`](strategy/19-bland-parity-gap-and-next-steps-2026-06-21.md)
+- [`strategy/20-final-verification-and-bland-plus-audit-2026-07-03.md`](strategy/20-final-verification-and-bland-plus-audit-2026-07-03.md)
 
 ## Architecture
 

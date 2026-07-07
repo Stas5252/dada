@@ -17,6 +17,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import { KnowledgeSourceForm } from "../components/KnowledgeSourceForm";
+import { RagEvalPanel } from "../components/RagEvalPanel";
 
 type KnowledgePageProps = {
   searchParams?: Promise<{
@@ -48,6 +49,7 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
   ).length;
   const sourceNames = new Map(sourcesResult.data.map((source) => [source.id, source.name]));
   const latestJobs = [...jobsResult.data].slice(0, 6);
+  const defaultEvalSourceTitle = sourcesResult.data[0]?.name ?? "";
 
   return (
     <DashboardShell
@@ -122,6 +124,8 @@ export default async function KnowledgePage({ searchParams }: KnowledgePageProps
             </div>
           </article>
         </div>
+
+        <RagEvalPanel defaultSourceTitle={defaultEvalSourceTitle} />
 
         <section className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden">
           <div className="p-6 border-b border-white/5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

@@ -11,6 +11,7 @@ import {
   type CoreAnalyticsOverview,
   type CoreAgentStats,
   type CorePathway,
+  type CoreTestbedReadinessResponse,
 } from "./core-api";
 
 export type ApiState = "live" | "mock" | "empty" | "error";
@@ -812,6 +813,35 @@ export function getAgent(agentId: string): Promise<ApiResult<Agent | null>> {
   return fetchMappedCoreData(path, fallback, mapAgent);
 }
 
+export function getAgentTestbedReadiness(agentId: string): Promise<ApiResult<CoreTestbedReadinessResponse>> {
+  return fetchMappedCoreData(
+    `/api/v1/agents/${agentId}/testbed/readiness`,
+    {
+      agent_id: agentId,
+      checked_at: new Date(0).toISOString(),
+      status: "action_required",
+      publish_blocked: true,
+      required_pass_rate: 1,
+      minimum_test_cases: 1,
+      total_cases: 0,
+      passing_cases: 0,
+      failing_cases: 0,
+      running_cases: 0,
+      stale_cases: 0,
+      missing_run_cases: 0,
+      pass_rate: 0,
+      failures: [
+        {
+          code: "no_live_readiness",
+          message: "Live Testbed readiness is unavailable.",
+        },
+      ],
+      cases: [],
+    },
+    (payload: CoreTestbedReadinessResponse) => payload,
+  );
+}
+
 export function getKnowledgeSource(sourceId: string): Promise<ApiResult<KnowledgeSource | null>> {
   const path = `/api/v1/knowledge/sources/${sourceId}`;
   const fallback = knowledgeSources.find((source) => source.id === sourceId) ?? null;
@@ -937,4 +967,3 @@ export function getAgentPathway(id: string): Promise<ApiResult<CorePathway>> {
     (payload: CorePathway) => payload,
   );
 }
-

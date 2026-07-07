@@ -50,6 +50,11 @@ const notices: Record<string, { tone: "Danger" | "Info"; text: string; title: st
     title: "Publish error",
     text: "Core API не опубликовал агента.",
   },
+  "agent-publish-gate": {
+    tone: "Danger",
+    title: "Testbed gate",
+    text: "Run and pass all Testbed scenarios before publishing this agent.",
+  },
   "agent-updated": {
     tone: "Info",
     title: "Agent updated",

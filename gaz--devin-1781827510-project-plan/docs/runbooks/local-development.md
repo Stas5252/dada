@@ -78,6 +78,10 @@ Local `APP_ENV=local` uses in-memory rate-limit storage by default, so the API
 does not require Redis just to run public endpoints. In staging/production, set
 `RATE_LIMIT_STORAGE_URI` or a reachable `REDIS_URL`.
 
+For repeated local Playwright runs, keep `APP_ENV=local` and start the API with
+`RATE_LIMIT_ENABLED=false`. This avoids registration throttling during parallel
+e2e tests while preserving async background jobs for Testbed runs.
+
 Web widget smoke endpoint:
 
 ```bash

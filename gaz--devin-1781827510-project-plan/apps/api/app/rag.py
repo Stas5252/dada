@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from hashlib import sha256
+from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import openai
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_QDRANT_VECTOR_SIZE = 384
 WORD_PATTERN = re.compile(r"\w+")
+_MISSING_COLLECTION_LOGGED: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,7 @@ def _get_qdrant_client() -> QdrantClient:
 
 
 @lru_cache
-def _get_local_embedding_model():
+def _get_local_embedding_model() -> Any:
     from sentence_transformers import SentenceTransformer
     return SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -87,15 +89,33 @@ def generate_embeddings(
 ) -> list[list[float]]:
     settings = get_settings()
     if not settings.openai_api_key:
-        model = _get_local_embedding_model()
-        embeddings = model.encode(texts)
-        return embeddings.tolist()
+        return [_deterministic_embedding(text, dimensions) for text in texts]
 
     client = _get_openai_client()
     response = client.embeddings.create(
         input=texts, model="text-embedding-3-small", dimensions=dimensions
     )
     return [d.embedding for d in response.data]
+
+
+def _deterministic_embedding(text: str, dimensions: int) -> list[float]:
+    vector = [0.0] * dimensions
+    tokens = WORD_PATTERN.findall(text.casefold())
+    if not tokens:
+        vector[0] = 1.0
+        return vector
+
+    for token in tokens:
+        digest = sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], "big") % dimensions
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[index] += sign
+
+    norm = sum(value * value for value in vector) ** 0.5
+    if norm == 0:
+        vector[0] = 1.0
+        return vector
+    return [value / norm for value in vector]
 
 
 def qdrant_point_id(tenant_id: UUID, source_id: UUID, chunk_index: int, chunk_hash: str) -> str:
@@ -135,6 +155,23 @@ def ensure_collection_exists(client: QdrantClient, contract: QdrantCollectionCon
             )
         else:
             raise
+
+
+def _is_missing_collection_error(error: Exception) -> bool:
+    if isinstance(error, UnexpectedResponse) and error.status_code == 404:
+        return True
+    message = str(error).casefold()
+    return "collection" in message and "not found" in message
+
+
+def _log_missing_collection_once(collection_name: str) -> None:
+    if collection_name in _MISSING_COLLECTION_LOGGED:
+        return
+    _MISSING_COLLECTION_LOGGED.add(collection_name)
+    logger.info(
+        "Qdrant collection %s is not ready; returning empty RAG context.",
+        collection_name,
+    )
 
 
 def build_knowledge_chunks(
@@ -214,7 +251,10 @@ def retrieve_sources(
             limit=limit,
         )
     except Exception as e:
-        logger.error("Qdrant search error: %s", e)
+        if _is_missing_collection_error(e):
+            _log_missing_collection_once(collection_name)
+        else:
+            logger.warning("Qdrant search error: %s", e)
         return []
 
     ranked_results: list[RetrievalResult] = []

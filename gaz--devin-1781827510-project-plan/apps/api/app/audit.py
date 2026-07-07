@@ -22,7 +22,8 @@ class AuditAction(StrEnum):
     AUTH_LOGIN = "auth.login"
     AUTH_REFRESH = "auth.refresh"
     AUTH_LOGOUT = "auth.logout"
-    AUTH_TOKEN_VERIFY = "auth.token_verify"
+    # Audit event name, not a credential.
+    AUTH_TOKEN_VERIFY = "auth.token_verify"  # nosec B105
     AGENT_LIST = "agent.list"
     AGENT_CREATE = "agent.create"
     AGENT_PUBLISH = "agent.publish"

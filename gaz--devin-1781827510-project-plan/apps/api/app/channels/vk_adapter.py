@@ -1,4 +1,5 @@
 import logging
+import secrets
 from typing import Any
 
 import httpx
@@ -45,15 +46,13 @@ class VKChannelAdapter:
 
     async def send_message(self, message: OutboundMessage) -> SendResult:
         """Send a message via VK API."""
-        import random
-
         url = "https://api.vk.com/method/messages.send"
         params = {
             "access_token": self.group_token,
             "v": self.api_version,
             "peer_id": message.external_chat_id,
             "message": message.text,
-            "random_id": random.randint(1, 2**31 - 1),
+            "random_id": secrets.randbelow(2**31 - 1) + 1,
         }
         
         # If reply_to_message_id is present, we could add reply_to.

@@ -4,6 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.api.v1.dependencies import find_tenant_for_agent
+from app.channel_policy import (
+    append_channel_opt_out_notice,
+    audit_channel_policy_auto_reply_block,
+    channel_policy_for_settings,
+    evaluate_channel_auto_reply_policy,
+)
 from app.limiter import limiter
 from app.orchestrator import AgentOrchestrator
 from app.settings import Settings, get_settings
@@ -46,11 +52,12 @@ async def widget_chat(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     tenant_uuid = UUID(tenant_id_str)
+    tenant = app_store.get_tenant(tenant_uuid)
+    tenant_settings = tenant.settings if tenant else None
+    channel_policy = channel_policy_for_settings(tenant_settings, "web_widget")
 
-    from app.api.v1.dependencies import check_billing_limit
     from app.channels import ChannelType, MessageEvent
 
-    check_billing_limit(tenant_uuid, app_store)
     agent_uuid = UUID(agent_id)
 
     # Normalize incoming message to MessageEvent structure
@@ -98,6 +105,35 @@ async def widget_chat(
             if updated:
                 customer = updated
 
+    existing_suppression = app_store.find_contact_suppression(
+        tenant_uuid,
+        "web_widget",
+        external_id=event.external_chat_id,
+        phone=customer.phone,
+    )
+    if existing_suppression:
+        app_store.create_audit_log(
+            event_type="contact_suppression.inbound_ignored",
+            tenant_id=tenant_uuid,
+            details={
+                "channel": "web_widget",
+                "contact_type": existing_suppression.contact_type,
+                "source": "widget_chat",
+                "suppression_id": str(existing_suppression.id),
+                "value": existing_suppression.value,
+            },
+        )
+        return WidgetChatResponse(
+            conversation_id=conversation_uuid,
+            response="",
+            status="suppressed",
+            confidence=None,
+        )
+
+    from app.api.v1.dependencies import check_billing_limit
+
+    check_billing_limit(tenant_uuid, app_store)
+
     # Process message via Orchestrator
     orchestrator = AgentOrchestrator(store=app_store, settings=settings)
 
@@ -109,6 +145,23 @@ async def widget_chat(
         channel="web_widget",
     )
     response_text = orchestrator_result.response_text
+    forced_status = orchestrator_result.forced_status
+    forced_resolution_status = orchestrator_result.forced_resolution_status
+    auto_reply_decision = evaluate_channel_auto_reply_policy(
+        app_store,
+        tenant_id=tenant_uuid,
+        conversation_id=conversation_uuid,
+        policy=channel_policy,
+    )
+    if auto_reply_decision.allowed:
+        response_text = append_channel_opt_out_notice(
+            response_text,
+            policy=channel_policy,
+            channel="web_widget",
+        )
+    else:
+        forced_status = auto_reply_decision.forced_status
+        forced_resolution_status = auto_reply_decision.forced_resolution_status
 
     recorded = app_store.record_chat_turn(
         tenant_id=tenant_uuid,
@@ -119,13 +172,63 @@ async def widget_chat(
         agent_response_text=response_text,
         customer_id=customer.id,
         confidence_score=orchestrator_result.confidence_score,
+        forced_status=forced_status,
+        forced_resolution_status=forced_resolution_status,
     )
     if not recorded:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    if orchestrator_result.guardrail_code == "opt_out_requested":
+        app_store.record_contact_suppression(
+            tenant_uuid,
+            "web_widget",
+            "external_id",
+            event.external_chat_id,
+            reason="opt_out_requested",
+            source="widget_guardrail",
+        )
+        if customer.phone:
+            try:
+                app_store.record_contact_suppression(
+                    tenant_uuid,
+                    "web_widget",
+                    "phone",
+                    customer.phone,
+                    reason="opt_out_requested",
+                    source="widget_guardrail",
+                )
+            except ValueError:
+                app_store.create_audit_log(
+                    event_type="contact_suppression.phone_skipped",
+                    tenant_id=tenant_uuid,
+                    details={
+                        "channel": "web_widget",
+                        "reason": "invalid_phone",
+                        "source": "widget_guardrail",
+                    },
+                )
+
+    if not auto_reply_decision.allowed:
+        audit_channel_policy_auto_reply_block(
+            app_store,
+            tenant_id=tenant_uuid,
+            channel="web_widget",
+            conversation_id=conversation_uuid,
+            source="widget_chat",
+            policy=channel_policy,
+            resolution_status=auto_reply_decision.forced_resolution_status,
+            block_reason=auto_reply_decision.block_reason or "automation_mode",
+            agent_reply_count=auto_reply_decision.agent_reply_count,
+        )
+        return WidgetChatResponse(
+            conversation_id=conversation_uuid,
+            response="",
+            status=auto_reply_decision.public_status,
+            confidence=orchestrator_result.confidence_score,
+        )
 
     return WidgetChatResponse(
         conversation_id=conversation_uuid,
         response=response_text,
         confidence=orchestrator_result.confidence_score,
     )
-

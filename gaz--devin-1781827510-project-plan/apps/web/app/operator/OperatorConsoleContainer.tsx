@@ -80,12 +80,12 @@ export function OperatorConsoleContainer({ initialConversations }: OperatorConso
             try {
               const audio = new Audio('/notification.mp3');
               audio.play().catch(() => {});
-            } catch (e) {}
+            } catch {}
             fetchConversations();
           } else if (msg.event === "conversation_update") {
             fetchConversations();
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
       };

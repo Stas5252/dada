@@ -78,6 +78,40 @@ export type CoreMfaRecoveryCodesResponse = {
   remaining: number;
 };
 
+export type CoreGuardrailPolicySettings = {
+  enabled: boolean;
+  opt_out_enabled: boolean;
+  human_handoff_enabled: boolean;
+  regulated_topics_enabled: boolean;
+  prompt_injection_block_enabled: boolean;
+  toxicity_escalation_enabled: boolean;
+  outbound_safety_enabled: boolean;
+  tool_safety_enabled: boolean;
+  ai_disclosure_required: boolean;
+  custom_regulated_terms: string[];
+  custom_prohibited_claims: string[];
+};
+
+export type CoreChannelAutomationMode = "autopilot" | "draft_only" | "human_approval";
+
+export type CoreChannelCompliancePolicySettings = {
+  mode: CoreChannelAutomationMode;
+  outbound_enabled: boolean;
+  ai_disclosure_required: boolean;
+  require_opt_out_notice: boolean;
+  require_contact_consent_for_outbound: boolean;
+  max_auto_replies_per_conversation: number;
+};
+
+export type CoreChannelPoliciesSettings = {
+  default_policy: CoreChannelCompliancePolicySettings;
+  web_widget: CoreChannelCompliancePolicySettings;
+  telegram: CoreChannelCompliancePolicySettings;
+  vk: CoreChannelCompliancePolicySettings;
+  whatsapp: CoreChannelCompliancePolicySettings;
+  voice: CoreChannelCompliancePolicySettings;
+};
+
 export type CoreDashboardResponse = {
   agents_total: number;
   automation_rate: number;
@@ -91,6 +125,9 @@ export type CoreBillingStatus = {
   plan: string;
   messages_used: number;
   messages_limit: number;
+  messages_remaining: number;
+  billing_period_start: string;
+  limit_exceeded: boolean;
   conversations_used: number;
 };
 
@@ -111,6 +148,53 @@ export type CoreAgent = {
   max_tokens: number;
   model_name: string;
 }
+
+export type CoreTestbedReadinessStatus = "ready" | "action_required";
+
+export type CoreTestbedCaseReadinessStatus = "passed" | "failed" | "running" | "stale_run" | "missing_run";
+
+export type CoreTestbedLatestRunSummary = {
+  id: string;
+  status: "running" | "passed" | "failed";
+  result_summary: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CoreTestbedCaseReadiness = {
+  test_case_id: string;
+  test_case_name: string;
+  status: CoreTestbedCaseReadinessStatus;
+  latest_run: CoreTestbedLatestRunSummary | null;
+  required_action: string | null;
+};
+
+export type CoreTestbedPublishFailure = {
+  code: string;
+  message: string;
+  test_case_id?: string;
+  test_case_name?: string;
+  latest_run_id?: string;
+  latest_run_status?: "running" | "passed" | "failed";
+};
+
+export type CoreTestbedReadinessResponse = {
+  agent_id: string;
+  checked_at: string;
+  status: CoreTestbedReadinessStatus;
+  publish_blocked: boolean;
+  required_pass_rate: number;
+  minimum_test_cases: number;
+  total_cases: number;
+  passing_cases: number;
+  failing_cases: number;
+  running_cases: number;
+  stale_cases: number;
+  missing_run_cases: number;
+  pass_rate: number;
+  failures: CoreTestbedPublishFailure[];
+  cases: CoreTestbedCaseReadiness[];
+};
 
 export type CorePathway = {
   nodes: Record<string, unknown>[] | null;
@@ -141,6 +225,34 @@ export type CoreKnowledgeIngestionJob = {
   status: "queued" | "running" | "completed" | "failed";
   tenant_id: string;
   updated_at: string;
+};
+
+export type CoreRagEvalStatus = "passed" | "failed";
+
+export type CoreRagEvalCaseResult = {
+  name: string;
+  status: CoreRagEvalStatus;
+  query: string;
+  should_answer: boolean;
+  retrieved_source_titles: string[];
+  citation_titles: string[];
+  matched_expected_terms: string[];
+  missing_expected_terms: string[];
+  no_answer_respected: boolean;
+  relevance_score: number;
+  answer_preview: string;
+  failures: string[];
+};
+
+export type CoreRagEvalResponse = {
+  status: CoreRagEvalStatus;
+  total_cases: number;
+  passed_cases: number;
+  failed_cases: number;
+  pass_rate: number;
+  required_pass_rate: number;
+  min_relevance_score: number;
+  results: CoreRagEvalCaseResult[];
 };
 
 export type CoreConversation = {
@@ -208,6 +320,57 @@ export type CoreProviderReadiness = {
   detail: string;
   provider: string;
   status: "configured" | "missing_secret" | "local_stub";
+};
+
+export type CoreIntegrationReadinessStatus = "configured" | "local_stub" | "needs_setup";
+
+export type CoreIntegrationReadinessItem = {
+  key: string;
+  label: string;
+  category: string;
+  status: CoreIntegrationReadinessStatus;
+  summary: string;
+  required_settings: string[];
+  configured_settings: string[];
+  missing_settings: string[];
+  setup_url: string | null;
+  docs_url: string | null;
+  blocking: boolean;
+};
+
+export type CoreIntegrationReadinessResponse = {
+  status: "ready" | "mock_mode" | "action_required";
+  checked_at: string;
+  items: CoreIntegrationReadinessItem[];
+};
+
+export type CoreChannelWebhookDiagnosticStatus = "ready" | "warning" | "needs_setup";
+
+export type CoreChannelWebhookPublicUrlStatus = "https_ready" | "local_only" | "missing";
+
+export type CoreChannelWebhookDiagnosticItem = {
+  key: string;
+  label: string;
+  provider: string;
+  status: CoreChannelWebhookDiagnosticStatus;
+  summary: string;
+  inbound_webhook_url: string | null;
+  required_settings: string[];
+  configured_settings: string[];
+  missing_settings: string[];
+  setup_steps: string[];
+  security_notes: string[];
+  warnings: string[];
+  setup_url: string | null;
+  docs_url: string | null;
+  test_mode: boolean;
+};
+
+export type CoreChannelWebhookDiagnosticsResponse = {
+  checked_at: string;
+  public_base_url: string;
+  public_url_status: CoreChannelWebhookPublicUrlStatus;
+  items: CoreChannelWebhookDiagnosticItem[];
 };
 
 export type CoreReadinessResponse = {

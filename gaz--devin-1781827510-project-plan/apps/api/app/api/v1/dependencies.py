@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
 
+from app.billing_limits import build_billing_usage_snapshot
 from app.rbac import Permission, PermissionDeniedError, Role, assert_role_allowed
 from app.schemas import Tenant, User
 from app.security import AccessTokenClaims, AccessTokenError, verify_access_token
@@ -171,32 +172,41 @@ def _unauthorized(message: str) -> HTTPException:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-def check_billing_limit(tenant_id: UUID, app_store: AppStore) -> None:
+def check_billing_limit(tenant_id: UUID, app_store: AppStore, source: str = "runtime") -> None:
     tenant = app_store.get_tenant(tenant_id)
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
-    from datetime import UTC, datetime
-    # Count only messages in the current calendar month
-    since = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    messages_used = app_store.count_messages(tenant_id, since=since)
-    limit_map = {
-        "free": 100,
-        "start": 1000,
-        "pro": 10000,
-        "enterprise": 999999,
-    }
-    limit = limit_map.get(tenant.plan.lower(), 1000)
-    if messages_used >= limit:
+    usage = build_billing_usage_snapshot(tenant, app_store)
+    if usage.limit_exceeded:
         message = (
-            f"Billing limit reached. Plan '{tenant.plan}' allows up to {limit} messages. "
+            f"Billing limit reached. Plan '{tenant.plan}' allows up to "
+            f"{usage.messages_limit} messages per month. "
             "Please upgrade."
+        )
+        app_store.create_audit_log(
+            tenant_id=tenant_id,
+            user_id=None,
+            event_type="billing.limit_blocked",
+            ip_address=None,
+            details={
+                "source": source,
+                "plan": tenant.plan,
+                "messages_used": str(usage.messages_used),
+                "messages_limit": str(usage.messages_limit),
+                "period_start": usage.period_start.isoformat(),
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail={
                 "error_code": "BILLING_LIMIT_REACHED",
                 "message": message,
+                "plan": tenant.plan,
+                "messages_used": usage.messages_used,
+                "messages_limit": usage.messages_limit,
+                "messages_remaining": usage.messages_remaining,
+                "period_start": usage.period_start.isoformat(),
             },
         )
 

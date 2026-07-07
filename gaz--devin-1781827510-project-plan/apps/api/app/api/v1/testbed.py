@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.v1.dependencies import AuthContext, resolve_current_principal
 from app.orchestrator import AgentOrchestrator
-from app.schemas import TestCase, TestCaseCreate, TestCaseStatus, TestRun
+from app.schemas import TestbedReadinessResponse, TestCase, TestCaseCreate, TestCaseStatus, TestRun
 from app.settings import get_settings
 from app.store_factory import AppStore, get_app_store
+from app.testbed_readiness import build_testbed_readiness
 
 router = APIRouter(tags=["Testbed"])
 logger = logging.getLogger(__name__)
@@ -45,6 +46,25 @@ def list_test_cases(
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     return store.list_test_cases(auth_context.tenant.id, agent_id)
+
+
+@router.get(
+    "/agents/{agent_id}/testbed/readiness",
+    response_model=TestbedReadinessResponse,
+)
+def get_testbed_readiness(
+    agent_id: UUID,
+    auth_context: AuthContext = Depends(resolve_current_principal),
+    store: AppStore = Depends(get_app_store),
+) -> TestbedReadinessResponse:
+    agent = store.get_agent(auth_context.tenant.id, agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    return build_testbed_readiness(
+        agent=agent,
+        test_cases=store.list_test_cases(auth_context.tenant.id, agent_id),
+        test_runs=store.list_test_runs(auth_context.tenant.id, agent_id),
+    )
 
 
 @router.post(

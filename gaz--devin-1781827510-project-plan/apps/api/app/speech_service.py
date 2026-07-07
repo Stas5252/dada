@@ -1,7 +1,10 @@
 import io
 from collections.abc import AsyncGenerator
+from typing import Literal, cast
 
 from app.settings import get_settings
+
+OpenAITTSResponseFormat = Literal["mp3", "opus", "aac", "flac", "wav", "pcm"]
 
 
 class SpeechService:
@@ -162,7 +165,14 @@ class OpenAIStreamingTTS(StreamingTTS):
         import openai
         
         client = openai.AsyncClient(api_key=settings.openai_api_key)
-        openai_format = "pcm" if response_format == "mulaw" else response_format
+        allowed_formats = {"mp3", "opus", "aac", "flac", "wav", "pcm"}
+        openai_format: OpenAITTSResponseFormat
+        if response_format == "mulaw":
+            openai_format = "pcm"
+        elif response_format in allowed_formats:
+            openai_format = cast(OpenAITTSResponseFormat, response_format)
+        else:
+            openai_format = "wav"
         
         try:
             # We use the raw client to stream the response chunks
@@ -216,5 +226,4 @@ def get_streaming_tts() -> StreamingTTS:
     if settings.openai_api_key:
         return OpenAIStreamingTTS()
     return MockStreamingTTS()
-
 

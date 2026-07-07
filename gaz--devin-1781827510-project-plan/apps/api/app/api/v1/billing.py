@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from yookassa.domain.notification import WebhookNotificationFactory
 
 from app.api.v1.dependencies import require_tenant_permission
+from app.billing_limits import build_billing_usage_snapshot
 from app.billing_service import BillingService
 from app.contracts.billing import BillingLedgerEntry
 from app.contracts.types import JsonValue
@@ -49,6 +50,9 @@ class BillingStatusResponse(BaseModel):
     plan: str
     messages_used: int
     messages_limit: int
+    messages_remaining: int
+    billing_period_start: str
+    limit_exceeded: bool
     conversations_used: int
 
 
@@ -62,21 +66,16 @@ async def get_billing_status(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    messages_used = app_store.count_messages(tenant_uuid)
+    usage = build_billing_usage_snapshot(tenant, app_store)
     conversations_used = len(app_store.list_conversations(tenant_uuid))
-
-    limit_map = {
-        "free": 100,
-        "start": 1000,
-        "pro": 10000,
-        "enterprise": 999999,
-    }
-    limit = limit_map.get(tenant.plan.lower(), 1000)
 
     return BillingStatusResponse(
         plan=tenant.plan,
-        messages_used=messages_used,
-        messages_limit=limit,
+        messages_used=usage.messages_used,
+        messages_limit=usage.messages_limit,
+        messages_remaining=usage.messages_remaining,
+        billing_period_start=usage.period_start.isoformat(),
+        limit_exceeded=usage.limit_exceeded,
         conversations_used=conversations_used,
     )
 

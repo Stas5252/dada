@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Calculator,
   Users,
@@ -91,6 +91,7 @@ function fmtMoney(n: number) {
 /* ── Component ─────────────────────────────────────────────────────── */
 export default function ROICalculator() {
   const [industry, setIndustry] = useState<Industry>("restaurant");
+  const [isChartReady, setIsChartReady] = useState(false);
   const [callsPerDay, setCallsPerDay] = useState(PRESETS.restaurant.callsPerDay);
   const [chatsPerDay, setChatsPerDay] = useState(PRESETS.restaurant.chatsPerDay);
   const [operatorSalary, setOperatorSalary] = useState(PRESETS.restaurant.operatorSalary);
@@ -108,6 +109,10 @@ export default function ROICalculator() {
     setAutomationTarget(p.automationTarget);
     setAvgCallMinutes(p.avgCallMinutes);
   };
+
+  useEffect(() => {
+    setIsChartReady(true);
+  }, []);
 
   const calc = useMemo(() => {
     const totalDialogs = (callsPerDay + chatsPerDay) * WORKING_DAYS;
@@ -332,7 +337,8 @@ export default function ROICalculator() {
             <div className="p-6 rounded-2xl border border-white/5 bg-zinc-900/50 backdrop-blur-xl">
               <h3 className="text-base font-semibold text-white mb-4">Затраты на обработку диалогов (тыс. ₽/мес)</h3>
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+                {isChartReady ? (
+                  <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={barData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                     <XAxis dataKey="name" tick={{ fill: "#a1a1aa", fontSize: 12 }} axisLine={{ stroke: "#3f3f46" }} />
@@ -346,7 +352,10 @@ export default function ROICalculator() {
                       <Cell fill="#10b981" />
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full rounded-lg bg-zinc-950/60" />
+                )}
               </div>
             </div>
 

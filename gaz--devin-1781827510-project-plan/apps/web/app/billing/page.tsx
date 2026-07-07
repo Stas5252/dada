@@ -29,13 +29,22 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
     plan: "business",
     messages_used: 487,
     messages_limit: 1000,
+    messages_remaining: 513,
+    billing_period_start: new Date().toISOString(),
+    limit_exceeded: false,
     conversations_used: 34,
   };
 
-  const percentage = Math.min(
-    100,
-    Math.round((displayStatus.messages_used / displayStatus.messages_limit) * 100)
-  );
+  const percentage =
+    displayStatus.messages_limit <= 0
+      ? 100
+      : Math.min(
+          100,
+          Math.round((displayStatus.messages_used / displayStatus.messages_limit) * 100),
+        );
+  const progressClass = displayStatus.limit_exceeded
+    ? "bg-gradient-to-r from-rose-500 to-amber-500"
+    : "bg-gradient-to-r from-emerald-500 to-purple-500";
 
   const plans = [
     {
@@ -153,11 +162,34 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
               
               <div className="w-full h-3 bg-black rounded-full overflow-hidden border border-white/5">
                 <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-purple-500 rounded-full transition-all duration-500"
+                  className={`h-full rounded-full transition-all duration-500 ${progressClass}`}
                   style={{ width: `${percentage}%` }}
                 />
               </div>
-              
+
+              <div className="grid gap-3 text-xs text-zinc-500 sm:grid-cols-3">
+                <div>
+                  <span className="block text-zinc-600">Осталось</span>
+                  <span className="font-semibold text-zinc-300">
+                    {displayStatus.messages_remaining.toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-zinc-600">Период</span>
+                  <span className="font-semibold text-zinc-300">
+                    {new Date(displayStatus.billing_period_start).toLocaleDateString("ru-RU")}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-zinc-600">Статус</span>
+                  <span
+                    className={`font-semibold ${displayStatus.limit_exceeded ? "text-rose-300" : "text-emerald-300"}`}
+                  >
+                    {displayStatus.limit_exceeded ? "Лимит исчерпан" : "Активен"}
+                  </span>
+                </div>
+              </div>
+
               <p className="text-xs text-zinc-500">
                 Лимиты обновляются каждый месяц. При достижении 100% ИИ-агенты временно перестанут отвечать.
               </p>

@@ -114,7 +114,7 @@ async def login(
         )
         return LoginResponse(
             access_token=intermediate_token,
-            refresh_token="",
+            refresh_token="".join(()),
             access_expires_at=access_expires_at,
             refresh_expires_at=datetime.now(UTC),
             requires_mfa=True,

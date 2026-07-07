@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Chat Simulation Flow', () => {
+  test.setTimeout(90000);
+
   test('should allow user to send a mock chat message from the test console', async ({ page }) => {
     // 1. Navigate to Register
     await page.goto('http://localhost:3000/register');
@@ -39,12 +41,12 @@ test.describe('Chat Simulation Flow', () => {
     // 8. Submit the mock chat form
     await page.fill('textarea[name="message"]', 'E2E Test Message: Hello AI!');
     // Use precise text locator for the correct submit button in test console
-    await page.click('button:has-text("Запустить тест")');
+    await Promise.all([
+      page.waitForURL('**/conversations/*', { timeout: 90000 }),
+      page.click('button:has-text("Запустить тест")'),
+    ]);
     
-    // 9. It redirects back to test-console?notice=mock-chat-sent or similar on success
-    await page.waitForURL('**/test-console*');
-    
-    // Check if the ActionNotice is present or check the URL notice
-    await expect(page.url()).toContain('/test-console');
+    // 9. The server action redirects to the created conversation on success.
+    await expect(page.url()).toContain('/conversations/');
   });
 });

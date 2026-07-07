@@ -93,8 +93,8 @@ async def trigger_outbound_call(
             try:
                 with open(OUTBOUND_CALLS_LOG, encoding="utf-8") as f:
                     log_data = json.load(f)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Could not read outbound call simulation log: %s", exc)
 
         log_data.append(
             {
@@ -117,7 +117,7 @@ async def trigger_outbound_call(
     try:
         import asyncio
 
-        from twilio.rest import Client  # type: ignore[import-untyped]
+        from twilio.rest import Client
 
         client = Client(account_sid, auth_token)
         call = await asyncio.to_thread(
@@ -164,8 +164,8 @@ async def trigger_sms_send(
             try:
                 with open(SMS_LOG, encoding="utf-8") as f:
                     log_data = json.load(f)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Could not read SMS simulation log: %s", exc)
 
         log_data.append(
             {"tenant_id": tenant_id, "to_number": to_number, "body": body, "status": "sent"}

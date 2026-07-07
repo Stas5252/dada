@@ -1,12 +1,17 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   ArrowLeft,
+  Bot,
   CheckCircle2,
   Clock3,
+  FileWarning,
   KeyRound,
   LockKeyhole,
   MailCheck,
+  MessageSquareWarning,
   RefreshCw,
+  Save,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
@@ -21,10 +26,16 @@ import {
   disableMfaAction,
   regenerateMfaRecoveryCodesAction,
   startMfaSetupAction,
+  updateGuardrailPolicyAction,
   verifyMfaSetupAction,
 } from "../../actions";
 import { getMfaRecoveryCodes, getMfaSetup } from "../../../lib/auth";
-import { fetchCoreApi, type CoreUser } from "../../../lib/core-api";
+import {
+  fetchCoreApi,
+  getCoreTenantId,
+  type CoreGuardrailPolicySettings,
+  type CoreUser,
+} from "../../../lib/core-api";
 
 export const metadata = {
   title: "Security settings - CallForce",
@@ -86,6 +97,16 @@ const notices: Record<string, { text: string; title: string; tone: "danger" | "i
     title: "MFA setup expired",
     text: "Секрет настройки истек. Запустите настройку MFA заново.",
   },
+  "guardrails-updated": {
+    tone: "info",
+    title: "Guardrails saved",
+    text: "Политика runtime-защит обновлена для текущего workspace.",
+  },
+  "guardrails-error": {
+    tone: "danger",
+    title: "Guardrails error",
+    text: "Core API не сохранил guardrail policy. Проверьте поля и попробуйте еще раз.",
+  },
 };
 
 const roleLabels: Record<CoreUser["role"], string> = {
@@ -93,6 +114,20 @@ const roleLabels: Record<CoreUser["role"], string> = {
   agent: "Agent",
   owner: "Owner",
   viewer: "Viewer",
+};
+
+const defaultGuardrailPolicy: CoreGuardrailPolicySettings = {
+  enabled: true,
+  opt_out_enabled: true,
+  human_handoff_enabled: true,
+  regulated_topics_enabled: true,
+  prompt_injection_block_enabled: true,
+  toxicity_escalation_enabled: true,
+  outbound_safety_enabled: true,
+  tool_safety_enabled: true,
+  ai_disclosure_required: false,
+  custom_regulated_terms: [],
+  custom_prohibited_claims: [],
 };
 
 function formatDate(value?: string) {
@@ -141,6 +176,38 @@ function ReadOnlySecret({ label, value }: { label: string; value: string }) {
   );
 }
 
+function GuardrailToggle({
+  defaultChecked,
+  description,
+  icon,
+  name,
+  title,
+}: {
+  defaultChecked: boolean;
+  description: string;
+  icon: ReactNode;
+  name: keyof CoreGuardrailPolicySettings;
+  title: string;
+}) {
+  return (
+    <label className="flex min-h-24 items-start gap-3 rounded-lg border border-white/5 bg-black/30 p-4">
+      <input
+        type="checkbox"
+        name={name}
+        defaultChecked={defaultChecked}
+        className="mt-1 h-4 w-4 rounded border-white/20 bg-black text-emerald-500 focus:ring-emerald-500"
+      />
+      <span className="flex-1">
+        <span className="flex items-center gap-2 text-sm font-semibold text-white">
+          {icon}
+          {title}
+        </span>
+        <span className="mt-1 block text-sm leading-6 text-zinc-400">{description}</span>
+      </span>
+    </label>
+  );
+}
+
 export default async function SecuritySettingsPage({
   searchParams,
 }: {
@@ -152,7 +219,13 @@ export default async function SecuritySettingsPage({
     getMfaSetup(),
     getMfaRecoveryCodes(),
   ]);
+  const tenantId = await getCoreTenantId();
+  const guardrailPolicyResult = await fetchCoreApi<CoreGuardrailPolicySettings>(
+    `/api/v1/tenants/${tenantId}/settings/guardrails`,
+  );
   const user = userResult.state === "live" ? userResult.data : null;
+  const guardrailPolicy =
+    guardrailPolicyResult.state === "live" ? guardrailPolicyResult.data : defaultGuardrailPolicy;
   const hasMfaSetup = Boolean(mfaSetup && !user?.mfa_enabled);
   const issuedRecoveryCodes = mfaRecoveryCodes?.codes ?? [];
 
@@ -178,6 +251,12 @@ export default async function SecuritySettingsPage({
         {userResult.state !== "live" && (
           <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             <strong className="font-semibold text-white">Core API:</strong> {userResult.message}
+          </div>
+        )}
+
+        {guardrailPolicyResult.state !== "live" && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <strong className="font-semibold text-white">Guardrails:</strong> {guardrailPolicyResult.message}
           </div>
         )}
 
@@ -224,6 +303,119 @@ export default async function SecuritySettingsPage({
               </div>
             )}
           </div>
+        </section>
+
+        <section className="rounded-lg border border-white/5 bg-zinc-900/50 p-6">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Runtime guardrails</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                Политика блокировок, эскалаций и безопасных tool calls для всех каналов workspace.
+              </p>
+            </div>
+            <StatusPill tone={guardrailPolicy.enabled ? "ok" : "warn"}>
+              {guardrailPolicy.enabled ? "Active" : "Disabled"}
+            </StatusPill>
+          </div>
+
+          <form action={updateGuardrailPolicyAction} className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2">
+              <GuardrailToggle
+                name="enabled"
+                defaultChecked={guardrailPolicy.enabled}
+                title="Policy engine"
+                description="Включает runtime-защиты перед ответом модели, после ответа и перед выполнением tools."
+                icon={<ShieldCheck className="h-4 w-4 text-emerald-400" />}
+              />
+              <GuardrailToggle
+                name="prompt_injection_block_enabled"
+                defaultChecked={guardrailPolicy.prompt_injection_block_enabled}
+                title="Prompt injection"
+                description="Блокирует попытки сменить системные правила или раскрыть внутренние инструкции."
+                icon={<ShieldAlert className="h-4 w-4 text-amber-400" />}
+              />
+              <GuardrailToggle
+                name="opt_out_enabled"
+                defaultChecked={guardrailPolicy.opt_out_enabled}
+                title="Opt-out"
+                description="Фиксирует отказ клиента от сообщений и переводит диалог в защищенный статус."
+                icon={<MessageSquareWarning className="h-4 w-4 text-red-300" />}
+              />
+              <GuardrailToggle
+                name="human_handoff_enabled"
+                defaultChecked={guardrailPolicy.human_handoff_enabled}
+                title="Human handoff"
+                description="Эскалирует обращения, где клиент просит оператора, менеджера или руководителя."
+                icon={<UserRound className="h-4 w-4 text-sky-300" />}
+              />
+              <GuardrailToggle
+                name="regulated_topics_enabled"
+                defaultChecked={guardrailPolicy.regulated_topics_enabled}
+                title="Regulated topics"
+                description="Передает человеку медицинские, юридические, финансовые и sensitive-запросы."
+                icon={<FileWarning className="h-4 w-4 text-orange-300" />}
+              />
+              <GuardrailToggle
+                name="toxicity_escalation_enabled"
+                defaultChecked={guardrailPolicy.toxicity_escalation_enabled}
+                title="Toxicity"
+                description="Не дает агенту продолжать конфликтный диалог в полностью автоматическом режиме."
+                icon={<ShieldOff className="h-4 w-4 text-rose-300" />}
+              />
+              <GuardrailToggle
+                name="outbound_safety_enabled"
+                defaultChecked={guardrailPolicy.outbound_safety_enabled}
+                title="Outbound safety"
+                description="Блокирует опасные обещания, утечки prompt/secret и неподтвержденные гарантии."
+                icon={<LockKeyhole className="h-4 w-4 text-violet-300" />}
+              />
+              <GuardrailToggle
+                name="tool_safety_enabled"
+                defaultChecked={guardrailPolicy.tool_safety_enabled}
+                title="Tool safety"
+                description="Проверяет подтверждение заказа, payload корзины и обязательные checkout-данные."
+                icon={<KeyRound className="h-4 w-4 text-cyan-300" />}
+              />
+              <GuardrailToggle
+                name="ai_disclosure_required"
+                defaultChecked={guardrailPolicy.ai_disclosure_required}
+                title="AI disclosure"
+                description="Добавляет в prompt требование прозрачно сообщать, что клиент общается с ИИ."
+                icon={<Bot className="h-4 w-4 text-lime-300" />}
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-zinc-300">Дополнительные темы эскалации</span>
+                <textarea
+                  name="custom_regulated_terms"
+                  defaultValue={guardrailPolicy.custom_regulated_terms.join("\n")}
+                  rows={5}
+                  className="w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-700 focus:border-emerald-500"
+                  placeholder={"VIP refund\nмедицинская лицензия"}
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-zinc-300">Запрещенные обещания в ответах</span>
+                <textarea
+                  name="custom_prohibited_claims"
+                  defaultValue={guardrailPolicy.custom_prohibited_claims.join("\n")}
+                  rows={5}
+                  className="w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-700 focus:border-emerald-500"
+                  placeholder={"оплата без договора\nскидка навсегда"}
+                />
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-medium text-black transition-colors hover:bg-zinc-200"
+            >
+              <Save className="h-4 w-4" />
+              Сохранить guardrails
+            </button>
+          </form>
         </section>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">

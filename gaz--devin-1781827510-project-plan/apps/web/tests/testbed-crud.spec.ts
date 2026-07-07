@@ -96,5 +96,19 @@ test.describe('Testbed CRUD Flow Smoke Test', () => {
     const testRuns = await listRunsRes.json();
     expect(testRuns.length).toBeGreaterThan(0);
     expect(testRuns[0].id).toBe(testRunId);
+
+    // Readiness summary for the publish gate
+    const readinessRes = await request.get(`/api/v1/agents/${agentId}/testbed/readiness`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'x-tenant-id': tenantId
+      }
+    });
+    expect(readinessRes.ok()).toBeTruthy();
+    const readiness = await readinessRes.json();
+    expect(readiness.agent_id).toBe(agentId);
+    expect(readiness.total_cases).toBeGreaterThan(0);
+    expect(readiness.required_pass_rate).toBe(1);
+    expect(readiness.cases[0].test_case_id).toBe(testCaseId);
   });
 });

@@ -37,7 +37,7 @@ class SqlAlchemyBillingLedger:
     async def find(self, *, key: BillingIdempotencyKey) -> BillingLedgerEntry | None:
         import asyncio
 
-        def _find():
+        def _find() -> BillingLedgerEntry | None:
             with self.session_factory() as session:
                 model = session.scalar(
                     select(BillingLedgerEntryModel).where(
@@ -65,7 +65,7 @@ class SqlAlchemyBillingLedger:
     async def save(self, *, entry: BillingLedgerEntry) -> BillingLedgerEntry:
         import asyncio
 
-        def _save():
+        def _save() -> BillingLedgerEntry:
             with self.session_factory() as session:
                 model = BillingLedgerEntryModel(
                     id=str(uuid4()),

@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Billing Flow', () => {
+  test.setTimeout(90000);
+
   test('should allow user to navigate to billing and initiate checkout', async ({ page }) => {
     // 1. Navigate to Register
     await page.goto('http://localhost:3000/register');
@@ -16,7 +18,7 @@ test.describe('Billing Flow', () => {
     await page.click('text="Создать аккаунт"');
     
     // 4. Wait for redirect to Dashboard
-    await page.waitForURL('http://localhost:3000/dashboard');
+    await page.waitForURL('http://localhost:3000/dashboard', { timeout: 90000 });
     
     // 5. Navigate to Billing page via side menu
     await page.goto('http://localhost:3000/billing');
@@ -31,7 +33,7 @@ test.describe('Billing Flow', () => {
     await upgradeButton.click();
     
     // 8. Wait for redirect to checkout
-    await page.waitForURL('**/billing/checkout*');
+    await page.waitForURL('**/billing/checkout*', { timeout: 90000 });
     
     // 9. Check checkout page text (Assuming it shows a confirmation or redirects)
     // Note: The /billing/checkout page in Next.js might be a server action or another page

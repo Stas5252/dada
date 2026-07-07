@@ -12,7 +12,8 @@ from app.schemas import (
 )
 
 DEMO_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
-DEMO_OWNER_PASSWORD = "safe-local-password"
+# Local demo fixture only; never used as a production secret.
+DEMO_OWNER_PASSWORD = "safe-local-password"  # nosec B105
 DEMO_OWNER_EMAIL = "owner@demo-pizza.example.com"
 
 

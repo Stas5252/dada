@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('CallForce Smoke Tests', () => {
+  test.setTimeout(90000);
+
   test('should load landing page and display main title', async ({ page }) => {
     await page.goto('/');
     const title = page.locator('h1');

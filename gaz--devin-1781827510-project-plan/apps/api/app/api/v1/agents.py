@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.api.v1.dependencies import require_tenant_permission
+from app.api.v1.dependencies import AuthContext, require_permission, require_tenant_permission
 from app.channels.telegram_adapter import TelegramChannelAdapter
 from app.encryption import encrypt_token
 from app.policy_validator import PolicyValidationError, PromptPolicyValidator
@@ -11,10 +11,12 @@ from app.rbac import Permission
 from app.schemas import Agent, AgentCreateRequest, AgentUpdateRequest, TelegramConnectRequest
 from app.settings import Settings, get_settings
 from app.store_factory import AppStore, get_app_store
+from app.testbed_readiness import build_testbed_readiness
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 READ_AGENTS = require_tenant_permission(Permission.READ_AGENTS)
 MANAGE_AGENTS = require_tenant_permission(Permission.MANAGE_AGENTS)
+MANAGE_AGENTS_CONTEXT = require_permission(Permission.MANAGE_AGENTS)
 
 
 @router.get("", response_model=list[Agent])
@@ -73,13 +75,55 @@ async def update_agent(
 @router.post("/{agent_id}/publish", response_model=Agent)
 async def publish_agent(
     agent_id: UUID,
-    tenant_id: str = Depends(MANAGE_AGENTS),
+    auth_context: AuthContext = Depends(MANAGE_AGENTS_CONTEXT),
     app_store: AppStore = Depends(get_app_store),
 ) -> Agent:
-    agent = app_store.publish_agent(UUID(tenant_id), agent_id)
+    tenant_id = auth_context.tenant.id
+    agent = app_store.get_agent(tenant_id, agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    return agent
+
+    testbed_readiness = build_testbed_readiness(
+        agent=agent,
+        test_cases=app_store.list_test_cases(tenant_id, agent_id),
+        test_runs=app_store.list_test_runs(tenant_id, agent_id),
+    )
+    if testbed_readiness.publish_blocked:
+        app_store.create_audit_log(
+            "agent.publish_blocked",
+            user_id=auth_context.user.id,
+            tenant_id=tenant_id,
+            details={
+                "agent_id": str(agent_id),
+                "failure_count": str(len(testbed_readiness.failures)),
+                "failure_codes": ",".join(failure["code"] for failure in testbed_readiness.failures),
+                "pass_rate": f"{testbed_readiness.pass_rate:.2f}",
+                "required_pass_rate": f"{testbed_readiness.required_pass_rate:.2f}",
+                "total_cases": str(testbed_readiness.total_cases),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "TESTBED_PUBLISH_GATE_FAILED",
+                "message": "Run and pass all Testbed scenarios before publishing this agent.",
+                "pass_rate": testbed_readiness.pass_rate,
+                "required_pass_rate": testbed_readiness.required_pass_rate,
+                "total_cases": testbed_readiness.total_cases,
+                "failures": testbed_readiness.failures,
+            },
+        )
+
+    published_agent = app_store.publish_agent(tenant_id, agent_id)
+    if not published_agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    app_store.create_audit_log(
+        "agent.publish",
+        user_id=auth_context.user.id,
+        tenant_id=tenant_id,
+        details={"agent_id": str(agent_id)},
+    )
+    return published_agent
 
 
 @router.post("/{agent_id}/telegram/connect", response_model=Agent)

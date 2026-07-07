@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from app.api.v1.dependencies import require_tenant_permission
+from app.rag_eval import evaluate_rag_cases
 from app.rbac import Permission
 from app.schemas import (
     KnowledgeIngestionJob,
     KnowledgeSource,
     KnowledgeSourceCreateRequest,
     QdrantCollectionContract,
+    RagEvalRequest,
+    RagEvalResponse,
 )
 from app.store_factory import AppStore, get_app_store
 
@@ -92,6 +95,15 @@ async def list_ingestion_jobs(
     app_store: AppStore = Depends(get_app_store),
 ) -> list[KnowledgeIngestionJob]:
     return app_store.list_ingestion_jobs(UUID(tenant_id))
+
+
+@router.post("/eval", response_model=RagEvalResponse)
+async def evaluate_knowledge_quality(
+    payload: RagEvalRequest,
+    tenant_id: str = Depends(READ_KNOWLEDGE),
+    app_store: AppStore = Depends(get_app_store),
+) -> RagEvalResponse:
+    return evaluate_rag_cases(payload, app_store.list_knowledge_sources(UUID(tenant_id)))
 
 
 @router.get("/ingestion/jobs/{job_id}", response_model=KnowledgeIngestionJob)

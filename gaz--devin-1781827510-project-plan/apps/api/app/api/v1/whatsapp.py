@@ -3,6 +3,12 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
+from app.channel_policy import (
+    append_channel_opt_out_notice,
+    audit_channel_policy_auto_reply_block,
+    channel_policy_for_settings,
+    evaluate_channel_auto_reply_policy,
+)
 from app.channels import ChannelType, OutboundMessage
 from app.channels.whatsapp_adapter import parse_whatsapp_update
 from app.orchestrator import AgentOrchestrator
@@ -87,6 +93,7 @@ async def whatsapp_webhook_receive(
     
     if not agent:
         return {"status": "ok"}
+    channel_policy = channel_policy_for_settings(tenant.settings, "whatsapp")
 
     wa_token = tenant.settings.get("whatsapp_token")
     wa_phone_id = tenant.settings.get("whatsapp_phone_number_id")
@@ -104,21 +111,6 @@ async def whatsapp_webhook_receive(
     for event in events:
         if wa.is_duplicate_update(event.external_message_id):
             continue
-
-        from app.api.v1.dependencies import check_billing_limit
-        try:
-            check_billing_limit(tenant_uuid, app_store)
-        except HTTPException as e:
-            if e.status_code == 402:
-                limit_message = "Уведомление: Лимит сообщений исчерпан."
-                outbound = OutboundMessage(
-                    channel=ChannelType.whatsapp,
-                    external_chat_id=event.external_chat_id,
-                    text=limit_message,
-                )
-                await wa.send_message(outbound)
-                continue
-            raise e
 
         # Map phone number -> stable conversation UUID
         conversation_uuid = uuid5(NAMESPACE_URL, f"wa_chat:{event.external_chat_id}:{agent.id}")
@@ -141,7 +133,42 @@ async def whatsapp_webhook_receive(
                 tenant_id=tenant_uuid,
                 customer_id=customer.id,
                 name=event.sender_name,
+            ) or customer
+
+        existing_suppression = app_store.find_contact_suppression(
+            tenant_uuid,
+            "whatsapp",
+            external_id=event.external_chat_id,
+            phone=event.external_chat_id,
+        )
+        if existing_suppression:
+            app_store.create_audit_log(
+                event_type="contact_suppression.inbound_ignored",
+                tenant_id=tenant_uuid,
+                details={
+                    "channel": "whatsapp",
+                    "contact_type": existing_suppression.contact_type,
+                    "source": "whatsapp_webhook",
+                    "suppression_id": str(existing_suppression.id),
+                    "value": existing_suppression.value,
+                },
             )
+            continue
+
+        from app.api.v1.dependencies import check_billing_limit
+        try:
+            check_billing_limit(tenant_uuid, app_store)
+        except HTTPException as e:
+            if e.status_code == 402:
+                limit_message = "Уведомление: Лимит сообщений исчерпан."
+                outbound = OutboundMessage(
+                    channel=ChannelType.whatsapp,
+                    external_chat_id=event.external_chat_id,
+                    text=limit_message,
+                )
+                await wa.send_message(outbound)
+                continue
+            raise e
 
         # Run Orchestrator
         orchestrator = AgentOrchestrator(store=app_store, settings=settings)
@@ -152,6 +179,24 @@ async def whatsapp_webhook_receive(
             customer_message=event.text,
             channel="whatsapp",
         )
+        response_text = orchestrator_result.response_text
+        forced_status = orchestrator_result.forced_status
+        forced_resolution_status = orchestrator_result.forced_resolution_status
+        auto_reply_decision = evaluate_channel_auto_reply_policy(
+            app_store,
+            tenant_id=tenant_uuid,
+            conversation_id=conversation_uuid,
+            policy=channel_policy,
+        )
+        if auto_reply_decision.allowed:
+            response_text = append_channel_opt_out_notice(
+                response_text,
+                policy=channel_policy,
+                channel="whatsapp",
+            )
+        else:
+            forced_status = auto_reply_decision.forced_status
+            forced_resolution_status = auto_reply_decision.forced_resolution_status
 
         # Record turn
         app_store.record_chat_turn(
@@ -160,15 +205,42 @@ async def whatsapp_webhook_receive(
             conversation_id=conversation_uuid,
             channel="whatsapp",
             customer_text=event.text,
-            agent_response_text=orchestrator_result.response_text,
+            agent_response_text=response_text,
+            customer_id=customer.id,
             confidence_score=orchestrator_result.confidence_score,
+            forced_status=forced_status,
+            forced_resolution_status=forced_resolution_status,
         )
+
+        if orchestrator_result.guardrail_code == "opt_out_requested":
+            app_store.record_contact_suppression(
+                tenant_uuid,
+                "whatsapp",
+                "phone",
+                event.external_chat_id,
+                reason="opt_out_requested",
+                source="whatsapp_guardrail",
+            )
+
+        if not auto_reply_decision.allowed:
+            audit_channel_policy_auto_reply_block(
+                app_store,
+                tenant_id=tenant_uuid,
+                channel="whatsapp",
+                conversation_id=conversation_uuid,
+                source="whatsapp_webhook",
+                policy=channel_policy,
+                resolution_status=auto_reply_decision.forced_resolution_status,
+                block_reason=auto_reply_decision.block_reason or "automation_mode",
+                agent_reply_count=auto_reply_decision.agent_reply_count,
+            )
+            continue
 
         # Send response back
         outbound = OutboundMessage(
             channel=ChannelType.whatsapp,
             external_chat_id=event.external_chat_id,
-            text=orchestrator_result.response_text,
+            text=response_text,
             reply_to_message_id=event.external_message_id,
         )
         await wa.send_message(outbound)

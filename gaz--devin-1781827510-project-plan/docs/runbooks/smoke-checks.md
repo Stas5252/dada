@@ -32,6 +32,33 @@ Defaults:
 
 Override these values only for non-production environments.
 
+## API health endpoint
+
+The versioned API health endpoint is:
+
+```text
+/api/v1/health
+```
+
+Example:
+
+```bash
+curl "$API_URL/api/v1/health"
+```
+
+## Playwright local browser smoke
+
+Start the API locally, then run browser tests from `apps/web`.
+
+PowerShell:
+
+```powershell
+$env:NEXT_PUBLIC_API_URL="http://127.0.0.1:8000"
+npx playwright test --reporter=list
+```
+
+Expected current result: 10/10 tests pass.
+
 ## Web widget check
 
 The local demo widget agent is:

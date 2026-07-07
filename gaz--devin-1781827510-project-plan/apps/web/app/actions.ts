@@ -12,11 +12,16 @@ import {
   getCoreTenantId,
   deleteCoreApiNoContent,
   type CoreAgent,
+  type CoreChannelAutomationMode,
+  type CoreChannelCompliancePolicySettings,
+  type CoreChannelPoliciesSettings,
   type CoreChatMessageResponse,
+  type CoreGuardrailPolicySettings,
   type CoreKnowledgeIngestionJob,
   type CoreKnowledgeSource,
   type CoreMfaRecoveryCodesResponse,
   type CoreMfaSetupResponse,
+  type CoreRagEvalResponse,
   type CoreVoicePreviewTurnResponse,
 } from "../lib/core-api";
 
@@ -24,6 +29,54 @@ function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
 
   return typeof value === "string" ? value.trim() : "";
+}
+
+function checkedValue(formData: FormData, key: string) {
+  return formData.get(key) === "on";
+}
+
+function textAreaLines(formData: FormData, key: string) {
+  return textValue(formData, key)
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function optionalNumberValue(formData: FormData, key: string, fallback: number) {
+  const value = Number.parseFloat(textValue(formData, key));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function automationModeValue(formData: FormData, key: string): CoreChannelAutomationMode {
+  const value = textValue(formData, key);
+  if (value === "draft_only" || value === "human_approval") {
+    return value;
+  }
+  return "autopilot";
+}
+
+function channelPolicyValue(
+  formData: FormData,
+  channel: "default_policy" | "telegram" | "vk" | "voice" | "web_widget" | "whatsapp",
+): CoreChannelCompliancePolicySettings {
+  const maxAutoReplies = Number.parseInt(
+    textValue(formData, `${channel}_max_auto_replies_per_conversation`) || "100",
+    10,
+  );
+
+  return {
+    mode: automationModeValue(formData, `${channel}_mode`),
+    outbound_enabled: checkedValue(formData, `${channel}_outbound_enabled`),
+    ai_disclosure_required: checkedValue(formData, `${channel}_ai_disclosure_required`),
+    require_opt_out_notice: checkedValue(formData, `${channel}_require_opt_out_notice`),
+    require_contact_consent_for_outbound: checkedValue(
+      formData,
+      `${channel}_require_contact_consent_for_outbound`,
+    ),
+    max_auto_replies_per_conversation: Number.isFinite(maxAutoReplies)
+      ? Math.min(Math.max(maxAutoReplies, 0), 1000)
+      : 100,
+  };
 }
 
 function noticePath(path: string, notice: string) {
@@ -126,6 +179,10 @@ export async function publishAgentAction(formData: FormData) {
     redirect(noticePath(returnTo, "agent-published"));
   }
 
+  if (result.message.includes("409")) {
+    redirect(noticePath(returnTo, "agent-publish-gate"));
+  }
+
   redirect(noticePath(returnTo, "agent-publish-error"));
 }
 
@@ -201,6 +258,71 @@ export async function reingestKnowledgeSourceAction(formData: FormData) {
   }
 
   redirect(noticePath("/knowledge", "knowledge-reingest-error"));
+}
+
+export type RagEvalActionResult =
+  | {
+      data: CoreRagEvalResponse;
+      state: "live";
+    }
+  | {
+      message: string;
+      state: "error";
+    };
+
+export async function runRagEvalAction(formData: FormData): Promise<RagEvalActionResult> {
+  const name = textValue(formData, "case_name") || "Golden answer";
+  const query = textValue(formData, "query");
+  const expectedSourceTitles = textAreaLines(formData, "expected_source_titles");
+  const expectedAnswerTerms = textAreaLines(formData, "expected_answer_terms");
+  const negativeQuery = textValue(formData, "negative_query");
+  const requiredPassRate = Math.min(Math.max(optionalNumberValue(formData, "required_pass_rate", 1), 0), 1);
+  const minRelevanceScore = Math.min(Math.max(optionalNumberValue(formData, "min_relevance_score", 0.2), 0), 1);
+
+  if (!query) {
+    return {
+      state: "error",
+      message: "Enter a golden query before running RAG eval.",
+    };
+  }
+
+  const cases = [
+    {
+      name,
+      query,
+      expected_source_titles: expectedSourceTitles,
+      expected_answer_terms: expectedAnswerTerms,
+      should_answer: true,
+    },
+  ];
+
+  if (negativeQuery) {
+    cases.push({
+      name: textValue(formData, "negative_case_name") || "No-answer guard",
+      query: negativeQuery,
+      expected_source_titles: [],
+      expected_answer_terms: [],
+      should_answer: false,
+    });
+  }
+
+  const result = await mutateCoreApi<CoreRagEvalResponse>("/api/v1/knowledge/eval", {
+    cases,
+    required_pass_rate: requiredPassRate,
+    min_relevance_score: minRelevanceScore,
+  });
+
+  if (result.state === "live") {
+    return {
+      state: "live",
+      data: result.data,
+    };
+  }
+
+  return {
+    state: "error",
+    message: result.message,
+  };
 }
 
 export async function createMockChatAction(formData: FormData) {
@@ -490,8 +612,10 @@ export async function updateTenantSettingsAction(formData: FormData) {
   const whatsapp_token = textValue(formData, "whatsapp_token");
   const whatsapp_phone_number_id = textValue(formData, "whatsapp_phone_number_id");
   const whatsapp_verify_token = textValue(formData, "whatsapp_verify_token");
+  const whatsapp_app_secret = textValue(formData, "whatsapp_app_secret");
   const vk_group_token = textValue(formData, "vk_group_token");
   const vk_confirmation_code = textValue(formData, "vk_confirmation_code");
+  const vk_secret_key = textValue(formData, "vk_secret_key");
   const iiko_api_login = textValue(formData, "iiko_api_login");
   const iiko_organization_id = textValue(formData, "iiko_organization_id");
   const iiko_terminal_group_id = textValue(formData, "iiko_terminal_group_id");
@@ -511,8 +635,10 @@ export async function updateTenantSettingsAction(formData: FormData) {
     whatsapp_token,
     whatsapp_phone_number_id,
     whatsapp_verify_token,
+    whatsapp_app_secret,
     vk_group_token,
     vk_confirmation_code,
+    vk_secret_key,
     iiko_api_login,
     iiko_organization_id,
     iiko_terminal_group_id,
@@ -527,6 +653,65 @@ export async function updateTenantSettingsAction(formData: FormData) {
   }
 
   redirect(noticePath("/settings/channels", "settings-error"));
+}
+
+export async function updateGuardrailPolicyAction(formData: FormData) {
+  const tenantId = await getCoreTenantId();
+  if (!tenantId) {
+    redirect(noticePath("/settings/security", "guardrails-error"));
+  }
+
+  const policy: CoreGuardrailPolicySettings = {
+    enabled: checkedValue(formData, "enabled"),
+    opt_out_enabled: checkedValue(formData, "opt_out_enabled"),
+    human_handoff_enabled: checkedValue(formData, "human_handoff_enabled"),
+    regulated_topics_enabled: checkedValue(formData, "regulated_topics_enabled"),
+    prompt_injection_block_enabled: checkedValue(formData, "prompt_injection_block_enabled"),
+    toxicity_escalation_enabled: checkedValue(formData, "toxicity_escalation_enabled"),
+    outbound_safety_enabled: checkedValue(formData, "outbound_safety_enabled"),
+    tool_safety_enabled: checkedValue(formData, "tool_safety_enabled"),
+    ai_disclosure_required: checkedValue(formData, "ai_disclosure_required"),
+    custom_regulated_terms: textAreaLines(formData, "custom_regulated_terms"),
+    custom_prohibited_claims: textAreaLines(formData, "custom_prohibited_claims"),
+  };
+
+  const result = await mutateCoreApi<CoreGuardrailPolicySettings>(
+    `/api/v1/tenants/${tenantId}/settings/guardrails`,
+    policy,
+  );
+
+  if (result.state === "live") {
+    redirect(noticePath("/settings/security", "guardrails-updated"));
+  }
+
+  redirect(noticePath("/settings/security", "guardrails-error"));
+}
+
+export async function updateChannelPoliciesAction(formData: FormData) {
+  const tenantId = await getCoreTenantId();
+  if (!tenantId) {
+    redirect(noticePath("/settings/channels", "channel-policies-error"));
+  }
+
+  const policies: CoreChannelPoliciesSettings = {
+    default_policy: channelPolicyValue(formData, "default_policy"),
+    web_widget: channelPolicyValue(formData, "web_widget"),
+    telegram: channelPolicyValue(formData, "telegram"),
+    vk: channelPolicyValue(formData, "vk"),
+    whatsapp: channelPolicyValue(formData, "whatsapp"),
+    voice: channelPolicyValue(formData, "voice"),
+  };
+
+  const result = await mutateCoreApi<CoreChannelPoliciesSettings>(
+    `/api/v1/tenants/${tenantId}/settings/channel-policies`,
+    policies,
+  );
+
+  if (result.state === "live") {
+    redirect(noticePath("/settings/channels", "channel-policies-updated"));
+  }
+
+  redirect(noticePath("/settings/channels", "channel-policies-error"));
 }
 
 export async function connectTelegramAction(formData: FormData) {

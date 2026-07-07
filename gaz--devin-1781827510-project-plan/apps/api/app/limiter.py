@@ -7,7 +7,8 @@ from app.settings import get_settings
 
 
 def _rate_limits_enabled() -> bool:
-    return get_settings().app_env != "test" and "pytest" not in sys.modules
+    settings = get_settings()
+    return settings.rate_limit_enabled and settings.app_env != "test" and "pytest" not in sys.modules
 
 
 def get_storage_uri() -> str:

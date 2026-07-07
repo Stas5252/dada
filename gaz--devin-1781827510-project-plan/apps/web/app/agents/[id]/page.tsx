@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { ArrowLeft, Play, Save, UploadCloud, MessageSquare, GitFork } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, GitFork, MessageSquare, Play, Save, ShieldCheck, UploadCloud } from "lucide-react";
 import { publishAgentAction, updateAgentAction, connectTelegramAction } from "../../actions";
 import { ActionNotice } from "../../components/ActionNotice";
 import { DashboardShell } from "../../components/DashboardShell";
 import { EmptyState } from "../../components/EmptyState";
 import { ResultNotice } from "../../components/ResultNotice";
 import { StatusPill } from "../../components/StatusPill";
-import { getAgent } from "../../../lib/mvp-data";
+import type { CoreTestbedCaseReadinessStatus, CoreTestbedReadinessResponse } from "../../../lib/core-api";
+import { getAgent, getAgentTestbedReadiness } from "../../../lib/mvp-data";
 
 type AgentEditPageProps = {
   params: Promise<{
@@ -24,11 +25,125 @@ function agentTone(status: "archived" | "draft" | "testing" | "published") {
   return "neutral";
 }
 
+function testbedTone(status: CoreTestbedReadinessResponse["status"]) {
+  return status === "ready" ? "ok" : "warn";
+}
+
+function caseTone(status: CoreTestbedCaseReadinessStatus) {
+  if (status === "passed") return "ok";
+  if (status === "running") return "warn";
+  return "danger";
+}
+
+function caseLabel(status: CoreTestbedCaseReadinessStatus) {
+  const labels: Record<CoreTestbedCaseReadinessStatus, string> = {
+    failed: "Failed",
+    missing_run: "Missing run",
+    passed: "Passed",
+    running: "Running",
+    stale_run: "Stale",
+  };
+  return labels[status];
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function TestbedReadinessPanel({
+  isLive,
+  readiness,
+}: {
+  isLive: boolean;
+  readiness: CoreTestbedReadinessResponse;
+}) {
+  const latestFailures = readiness.failures.slice(0, 3);
+
+  return (
+    <section className="rounded-xl border border-white/5 bg-zinc-900/50 p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-300">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">Testbed readiness</h2>
+            <p className="mt-1 text-sm text-zinc-400">Quality gate for publish with pass-rate and latest run history.</p>
+          </div>
+        </div>
+        <StatusPill tone={testbedTone(readiness.status)}>{readiness.status.replace("_", " ")}</StatusPill>
+      </div>
+
+      {!isLive && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          Live Testbed readiness is unavailable, fallback data is shown.
+        </div>
+      )}
+
+      <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt className="text-xs text-zinc-500">Pass rate</dt>
+          <dd className="mt-1 text-lg font-semibold text-white">
+            {formatPercent(readiness.pass_rate)}
+            <span className="ml-1 text-xs font-normal text-zinc-500">/ {formatPercent(readiness.required_pass_rate)}</span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-zinc-500">Cases</dt>
+          <dd className="mt-1 text-lg font-semibold text-white">{readiness.passing_cases}/{readiness.total_cases}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-zinc-500">Running</dt>
+          <dd className="mt-1 font-medium text-zinc-200">{readiness.running_cases}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-zinc-500">Needs rerun</dt>
+          <dd className="mt-1 font-medium text-zinc-200">{readiness.stale_cases + readiness.missing_run_cases}</dd>
+        </div>
+      </dl>
+
+      {readiness.cases.length > 0 && (
+        <div className="mt-5 divide-y divide-white/5 border-t border-white/5">
+          {readiness.cases.slice(0, 4).map((testCase) => (
+            <div key={testCase.test_case_id} className="flex items-start justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-white">{testCase.test_case_name}</div>
+                {testCase.required_action && (
+                  <div className="mt-1 text-xs leading-5 text-zinc-500">{testCase.required_action}</div>
+                )}
+              </div>
+              <StatusPill tone={caseTone(testCase.status)}>{caseLabel(testCase.status)}</StatusPill>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {latestFailures.length > 0 ? (
+        <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
+          {latestFailures.map((failure) => (
+            <div key={`${failure.code}-${failure.test_case_id ?? "global"}`} className="flex items-start gap-2 text-xs leading-5 text-amber-100">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{failure.test_case_name ? `${failure.test_case_name}: ${failure.message}` : failure.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 flex items-start gap-2 border-t border-white/5 pt-4 text-xs leading-5 text-emerald-200">
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          All active Testbed scenarios are fresh and passing.
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default async function AgentEditPage({ params, searchParams }: AgentEditPageProps) {
   const [{ id }, resolvedSearchParams] = await Promise.all([params, searchParams]);
-  const agentResult = await getAgent(id);
+  const [agentResult, testbedReadinessResult] = await Promise.all([getAgent(id), getAgentTestbedReadiness(id)]);
   const notice = resolvedSearchParams?.notice;
   const agent = agentResult.data;
+  const testbedReadiness = testbedReadinessResult.data;
 
   return (
     <DashboardShell
@@ -224,6 +339,11 @@ export default async function AgentEditPage({ params, searchParams }: AgentEditP
             </section>
 
             <aside className="space-y-6">
+              <TestbedReadinessPanel
+                isLive={testbedReadinessResult.state === "live"}
+                readiness={testbedReadiness}
+              />
+
               <section className="rounded-xl border border-white/5 bg-zinc-900/50 p-6">
                 <h2 className="text-lg font-semibold text-white">Публикация</h2>
                 <p className="mt-2 text-sm text-zinc-400">

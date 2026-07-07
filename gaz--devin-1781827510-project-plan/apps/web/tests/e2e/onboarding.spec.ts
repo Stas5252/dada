@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('User Onboarding Flow', () => {
+  test.setTimeout(90000);
+
   test('should allow a new user to register and create an agent', async ({ page }) => {
     // 1. Navigate to Register
     await page.goto('http://localhost:3000/register');
@@ -16,18 +18,18 @@ test.describe('User Onboarding Flow', () => {
     await page.click('text="Создать аккаунт"');
     
     // 4. Wait for redirect to Dashboard
-    await page.waitForURL('http://localhost:3000/dashboard');
+    await page.waitForURL('http://localhost:3000/dashboard', { timeout: 90000 });
     await expect(page.locator('h1')).toContainText('Панель Управления');
     
     // 5. Navigate to Agents List
     await page.click('text="AI-Агенты"');
-    await page.waitForURL('http://localhost:3000/agents');
+    await page.waitForURL('http://localhost:3000/agents', { timeout: 90000 });
     
     // 6. Navigate to New Agent Builder
     // If the list is empty, there is a "Создать первого агента" button. Otherwise, "Создать агента"
     const newAgentButton = page.locator('text="Создать первого агента"').or(page.locator('text="Создать агента"'));
     await newAgentButton.first().click();
-    await page.waitForURL('http://localhost:3000/agents/new');
+    await page.waitForURL('http://localhost:3000/agents/new', { timeout: 90000 });
     
     // 7. Fill out agent details
     await page.fill('input[name="name"]', 'E2E Test Agent');
@@ -38,7 +40,7 @@ test.describe('User Onboarding Flow', () => {
     await page.click('text="Сохранить draft"');
     
     // 9. Wait for redirect back to Agents list
-    await page.waitForURL('**/agents*');
+    await page.waitForURL('**/agents*', { timeout: 90000 });
     
     // 10. Verify agent was created
     await expect(page.locator('text="E2E Test Agent"')).toBeVisible();

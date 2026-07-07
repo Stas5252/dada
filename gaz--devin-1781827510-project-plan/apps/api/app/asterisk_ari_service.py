@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import aiohttp
@@ -30,7 +31,7 @@ class AsteriskARIService:
         self.app_name = "callforce"
 
 
-    async def _api_post(self, path: str, params: dict | None = None) -> None:
+    async def _api_post(self, path: str, params: dict[str, str] | None = None) -> None:
         if not self.session:
             return
         auth = aiohttp.BasicAuth(
@@ -71,7 +72,7 @@ class AsteriskARIService:
             logger.info("Reconnecting to ARI in 5 seconds...")
             await asyncio.sleep(5)
 
-    async def _handle_event(self, event: dict) -> None:
+    async def _handle_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
         if event_type == "StasisStart":
             channel = event.get("channel", {})
@@ -147,6 +148,8 @@ class AsteriskARIService:
                         customer_text=text,
                         agent_response_text=response_text,
                         confidence_score=orchestrator_result.confidence_score,
+                        forced_status=orchestrator_result.forced_status,
+                        forced_resolution_status=orchestrator_result.forced_resolution_status,
                     )
                     
                     self.voice_service.record_voice_turn(

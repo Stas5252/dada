@@ -17,6 +17,7 @@ export function KnowledgeSourceForm() {
         createKnowledgeSourceAction(formData).finally(() => setIsSubmitting(false));
       }}
       className="space-y-4"
+      data-testid="knowledge-source-form"
     >
       <div>
         <label className="block text-sm font-medium text-zinc-300 mb-1.5">
@@ -95,6 +96,7 @@ export function KnowledgeSourceForm() {
       <div className="flex gap-3 pt-2">
         <SubmitButton
           className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-zinc-200 disabled:bg-white/10 disabled:text-zinc-500"
+          data-testid="knowledge-source-submit"
         >
           {isSubmitting ? "Обработка..." : "Загрузить"}
         </SubmitButton>

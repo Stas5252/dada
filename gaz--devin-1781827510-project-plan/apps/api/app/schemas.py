@@ -1,8 +1,9 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.rbac import Role
 
@@ -42,6 +43,160 @@ class MessageRole(StrEnum):
     agent = "agent"
     operator = "operator"
     system = "system"
+
+
+class ChannelAutomationMode(StrEnum):
+    autopilot = "autopilot"
+    draft_only = "draft_only"
+    human_approval = "human_approval"
+
+
+class ChannelCompliancePolicySettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: ChannelAutomationMode = ChannelAutomationMode.autopilot
+    outbound_enabled: bool = True
+    ai_disclosure_required: bool = False
+    require_opt_out_notice: bool = False
+    require_contact_consent_for_outbound: bool = False
+    max_auto_replies_per_conversation: int = Field(default=100, ge=0, le=1000)
+
+
+class ChannelPoliciesSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_policy: ChannelCompliancePolicySettings = Field(
+        default_factory=ChannelCompliancePolicySettings,
+    )
+    web_widget: ChannelCompliancePolicySettings = Field(
+        default_factory=ChannelCompliancePolicySettings,
+    )
+    telegram: ChannelCompliancePolicySettings = Field(
+        default_factory=ChannelCompliancePolicySettings,
+    )
+    vk: ChannelCompliancePolicySettings = Field(default_factory=ChannelCompliancePolicySettings)
+    whatsapp: ChannelCompliancePolicySettings = Field(
+        default_factory=ChannelCompliancePolicySettings,
+    )
+    voice: ChannelCompliancePolicySettings = Field(
+        default_factory=ChannelCompliancePolicySettings,
+    )
+
+
+class IntegrationReadinessStatus(StrEnum):
+    configured = "configured"
+    local_stub = "local_stub"
+    needs_setup = "needs_setup"
+
+
+class IntegrationReadinessOverallStatus(StrEnum):
+    ready = "ready"
+    mock_mode = "mock_mode"
+    action_required = "action_required"
+
+
+class IntegrationReadinessItem(BaseModel):
+    key: str
+    label: str
+    category: str
+    status: IntegrationReadinessStatus
+    summary: str
+    required_settings: list[str] = Field(default_factory=list)
+    configured_settings: list[str] = Field(default_factory=list)
+    missing_settings: list[str] = Field(default_factory=list)
+    setup_url: str | None = None
+    docs_url: str | None = None
+    blocking: bool = False
+
+
+class IntegrationReadinessResponse(BaseModel):
+    status: IntegrationReadinessOverallStatus
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    items: list[IntegrationReadinessItem]
+
+
+class ChannelWebhookDiagnosticStatus(StrEnum):
+    ready = "ready"
+    warning = "warning"
+    needs_setup = "needs_setup"
+
+
+class ChannelWebhookPublicUrlStatus(StrEnum):
+    https_ready = "https_ready"
+    local_only = "local_only"
+    missing = "missing"
+
+
+class ChannelWebhookDiagnosticItem(BaseModel):
+    key: str
+    label: str
+    provider: str
+    status: ChannelWebhookDiagnosticStatus
+    summary: str
+    inbound_webhook_url: str | None = None
+    required_settings: list[str] = Field(default_factory=list)
+    configured_settings: list[str] = Field(default_factory=list)
+    missing_settings: list[str] = Field(default_factory=list)
+    setup_steps: list[str] = Field(default_factory=list)
+    security_notes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    setup_url: str | None = None
+    docs_url: str | None = None
+    test_mode: bool = True
+
+
+class ChannelWebhookDiagnosticsResponse(BaseModel):
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    public_base_url: str
+    public_url_status: ChannelWebhookPublicUrlStatus
+    items: list[ChannelWebhookDiagnosticItem]
+
+
+class GuardrailPolicySettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    opt_out_enabled: bool = True
+    human_handoff_enabled: bool = True
+    regulated_topics_enabled: bool = True
+    prompt_injection_block_enabled: bool = True
+    toxicity_escalation_enabled: bool = True
+    outbound_safety_enabled: bool = True
+    tool_safety_enabled: bool = True
+    ai_disclosure_required: bool = False
+    custom_regulated_terms: list[str] = Field(default_factory=list, max_length=50)
+    custom_prohibited_claims: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("custom_regulated_terms", "custom_prohibited_claims", mode="before")
+    @classmethod
+    def normalize_phrase_list(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items: Sequence[object] = value.splitlines()
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            raise ValueError("Value must be a list of phrases.")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            if not isinstance(item, str):
+                raise ValueError("Every phrase must be a string.")
+            phrase = " ".join(item.split())
+            if not phrase:
+                continue
+            if len(phrase) > 80:
+                raise ValueError("Every phrase must be 80 characters or fewer.")
+            phrase_key = phrase.casefold()
+            if phrase_key in seen:
+                continue
+            seen.add(phrase_key)
+            normalized.append(phrase)
+        if len(normalized) > 50:
+            raise ValueError("No more than 50 phrases are allowed.")
+        return normalized
 
 
 class TimestampedModel(BaseModel):
@@ -157,6 +312,46 @@ class QdrantCollectionContract(BaseModel):
     vector_name: str = "content"
     payload_indexes: dict[str, str] = Field(default_factory=dict)
 
+class RagEvalStatus(StrEnum):
+    passed = "passed"
+    failed = "failed"
+
+class RagEvalCaseCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    query: str = Field(min_length=2, max_length=1000)
+    expected_source_titles: list[str] = Field(default_factory=list, max_length=10)
+    expected_answer_terms: list[str] = Field(default_factory=list, max_length=20)
+    should_answer: bool = True
+
+class RagEvalRequest(BaseModel):
+    cases: list[RagEvalCaseCreate] = Field(min_length=1, max_length=50)
+    required_pass_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    min_relevance_score: float = Field(default=0.2, ge=0.0, le=1.0)
+
+class RagEvalCaseResult(BaseModel):
+    name: str
+    status: RagEvalStatus
+    query: str
+    should_answer: bool
+    retrieved_source_titles: list[str]
+    citation_titles: list[str]
+    matched_expected_terms: list[str]
+    missing_expected_terms: list[str]
+    no_answer_respected: bool
+    relevance_score: float
+    answer_preview: str
+    failures: list[str]
+
+class RagEvalResponse(BaseModel):
+    status: RagEvalStatus
+    total_cases: int
+    passed_cases: int
+    failed_cases: int
+    pass_rate: float
+    required_pass_rate: float
+    min_relevance_score: float
+    results: list[RagEvalCaseResult]
+
 
 class Message(TimestampedModel):
     id: UUID = Field(default_factory=uuid4)
@@ -176,6 +371,46 @@ class Customer(TimestampedModel):
     name: str | None = None
     phone: str | None = None
     tags: list[str] = Field(default_factory=list)
+
+
+class ContactSuppression(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    channel: str
+    contact_type: str
+    value: str
+    reason: str = "opt_out_requested"
+    source: str = "runtime_guardrail"
+    status: str = "active"
+
+
+class ContactSuppressionCreateRequest(BaseModel):
+    channel: str = Field(min_length=1, max_length=40)
+    contact_type: str = Field(pattern=r"^(external_id|phone)$")
+    value: str = Field(min_length=1, max_length=160)
+    reason: str = Field(default="manual", min_length=1, max_length=120)
+    source: str = Field(default="manual", min_length=1, max_length=80)
+
+
+class ContactConsent(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    channel: str
+    contact_type: str
+    value: str
+    consent_type: str = "outbound_contact"
+    source: str = "manual"
+    status: str = "active"
+    expires_at: datetime | None = None
+
+
+class ContactConsentCreateRequest(BaseModel):
+    channel: str = Field(min_length=1, max_length=40)
+    contact_type: str = Field(pattern=r"^(external_id|phone)$")
+    value: str = Field(min_length=1, max_length=160)
+    consent_type: str = Field(default="outbound_contact", min_length=1, max_length=80)
+    source: str = Field(default="manual", min_length=1, max_length=80)
+    expires_at: datetime | None = None
 
 
 class CustomerCreate(BaseModel):
@@ -437,3 +672,45 @@ class TestRun(TestRunBase, TimestampedModel):
     tenant_id: UUID
     agent_id: UUID
     test_case_id: UUID
+
+class TestbedReadinessStatus(StrEnum):
+    ready = "ready"
+    action_required = "action_required"
+
+class TestbedCaseReadinessStatus(StrEnum):
+    passed = "passed"
+    failed = "failed"
+    running = "running"
+    stale_run = "stale_run"
+    missing_run = "missing_run"
+
+class TestbedLatestRunSummary(BaseModel):
+    id: UUID
+    status: TestCaseStatus
+    result_summary: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+class TestbedCaseReadiness(BaseModel):
+    test_case_id: UUID
+    test_case_name: str
+    status: TestbedCaseReadinessStatus
+    latest_run: TestbedLatestRunSummary | None = None
+    required_action: str | None = None
+
+class TestbedReadinessResponse(BaseModel):
+    agent_id: UUID
+    checked_at: datetime
+    status: TestbedReadinessStatus
+    publish_blocked: bool
+    required_pass_rate: float
+    minimum_test_cases: int
+    total_cases: int
+    passing_cases: int
+    failing_cases: int
+    running_cases: int
+    stale_cases: int
+    missing_run_cases: int
+    pass_rate: float
+    failures: list[dict[str, str]]
+    cases: list[TestbedCaseReadiness]

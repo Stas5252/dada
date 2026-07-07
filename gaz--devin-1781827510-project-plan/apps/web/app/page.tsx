@@ -1,7 +1,7 @@
-import { 
-  Phone, MessageSquare, Database, Zap, Workflow, ShieldCheck, 
-  Check, ArrowRight, Activity, TerminalSquare, Play, Calculator, 
-  Headphones, Store, Truck, Key, CheckCircle2, Globe, Cpu, X
+import {
+  Phone, Database, Zap, Workflow, ShieldCheck,
+  Check, ArrowRight,
+  CheckCircle2, Globe, X
 } from "lucide-react";
 import Link from "next/link";
 import { HeaderNavigation } from "./components/HeaderNavigation";
@@ -165,13 +165,13 @@ export default async function Home({ searchParams }: HomeProps) {
               <div className="p-6">
                 <pre className="text-sm font-mono leading-relaxed overflow-x-auto text-zinc-400 mb-8">
                   curl -X POST https://api.callforce.ru/v1/calls \<br/>
-                  &nbsp;&nbsp;-H <span className="text-zinc-100">"Authorization: Bearer sk-..."</span> \<br/>
-                  &nbsp;&nbsp;-H <span className="text-zinc-100">"Content-Type: application/json"</span> \<br/>
-                  &nbsp;&nbsp;-d '&#123;<br/>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-zinc-100">"phone_number"</span>: <span className="text-zinc-100">"+79991234567"</span>,<br/>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-zinc-100">"task"</span>: <span className="text-zinc-100">"Забронируй столик на вечер."</span>,<br/>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-zinc-100">"voice"</span>: <span className="text-zinc-100">"ru-RU-female-1"</span><br/>
-                  &nbsp;&nbsp;&#125;'
+                  &nbsp;&nbsp;-H <span className="text-zinc-100">&quot;Authorization: Bearer sk-...&quot;</span> \<br/>
+                  &nbsp;&nbsp;-H <span className="text-zinc-100">&quot;Content-Type: application/json&quot;</span> \<br/>
+                  &nbsp;&nbsp;-d &apos;&#123;<br/>
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-zinc-100">&quot;phone_number&quot;</span>: <span className="text-zinc-100">&quot;+79991234567&quot;</span>,<br/>
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-zinc-100">&quot;task&quot;</span>: <span className="text-zinc-100">&quot;Забронируй столик на вечер.&quot;</span>,<br/>
+                  &nbsp;&nbsp;&nbsp;&nbsp;<span className="text-zinc-100">&quot;voice&quot;</span>: <span className="text-zinc-100">&quot;ru-RU-female-1&quot;</span><br/>
+                  &nbsp;&nbsp;&#125;&apos;
                 </pre>
 
                 <div className="border-t border-white/10 pt-6">
@@ -195,7 +195,7 @@ export default async function Home({ searchParams }: HomeProps) {
               Инфраструктура Enterprise-уровня.
             </h2>
             <p className="text-zinc-400 text-lg">
-              Построено для обработки миллионов диалогов. От SIP-транков с минимальной задержкой до интегрированных векторных БД — все работает "из коробки".
+              Построено для обработки миллионов диалогов. От SIP-транков с минимальной задержкой до интегрированных векторных БД — все работает &quot;из коробки&quot;.
             </p>
           </div>
 

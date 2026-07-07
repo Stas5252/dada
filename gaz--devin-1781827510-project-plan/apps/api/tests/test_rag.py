@@ -1,3 +1,4 @@
+import logging
 from uuid import uuid4
 
 from app.rag import (
@@ -67,6 +68,17 @@ def test_retrieve_sources_ranks_matching_source() -> None:
     results = retrieve_sources(delivery.tenant_id, "delivery minutes", collection_name)
 
     assert "Delivery" in [result.title for result in results]
+
+
+def test_retrieve_sources_missing_collection_returns_empty_without_error(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="app.rag")
+    collection_name = f"missing_collection_{uuid4().hex}"
+
+    results = retrieve_sources(uuid4(), "delivery minutes", collection_name)
+
+    assert results == []
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+    assert any("empty RAG context" in record.message for record in caplog.records)
 
 
 def test_compose_grounded_answer_has_no_answer_policy() -> None:

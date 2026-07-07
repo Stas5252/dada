@@ -78,9 +78,9 @@ This document breaks down the implementation of the CallForce master plan into s
 - [x] Restore clean backend gates after recent feature work: ruff, mypy, pytest 105/105.
 - [x] Restore frontend type/build gates: lint 0 errors, typecheck, production build.
 - [x] Fix blocking demo endpoint, action-engine payload parsing, pathway typing, scenario typing, billing UUID and iiko settings typing.
-- [ ] Clean remaining frontend lint warnings and Recharts SSR chart warnings.
-- [ ] Implement Bland-style Testbed: scenario standards, per-node tests, pass thresholds, publish gates.
-- [ ] Implement runtime Guard Rails: opt-out, prohibited content, tool-call safety, forced escalation.
+- [x] Clean remaining frontend lint warnings and Recharts SSR chart warnings.
+- [~] Implement Bland-style Testbed: backend publish gate, readiness API/UI, `100%` pass-rate threshold and latest-run summaries now exist; larger scenario suites, per-node assertions and CI eval history still need expansion.
+- [~] Implement runtime Guard Rails: opt-out, durable contact suppression/DNC, durable contact consent ledger with expiry/revoke, consent-required outbound blocking, human handoff intent, regulated-topic escalation, unsafe outbound claim blocking, unsafe tool-call blocking, per-tenant policy API/UI, per-channel automation policy API/UI, auto-reply caps, opt-out notice injection, initial red-team regression and audit events now exist; provider-specific consent templates, larger red-team evals and live-provider proof remain.
 - [ ] Implement cross-channel Memory: facts, summaries, open items, recent messages.
 - [ ] Implement real SIP/STT/TTS voice path with measured latency.
 - [ ] Acceptance: parity report `19-bland-parity-gap-and-next-steps-2026-06-21.md` has all critical gaps closed and verified by automated/browser/staging checks.

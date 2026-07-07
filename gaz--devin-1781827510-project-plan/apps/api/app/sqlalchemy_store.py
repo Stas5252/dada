@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
@@ -13,6 +14,8 @@ from app.db_models import (
     ApiKeyModel,
     AuditLogModel,
     AuthSessionModel,
+    ContactConsentModel,
+    ContactSuppressionModel,
     ConversationModel,
     CustomerModel,
     KnowledgeChunkModel,
@@ -57,6 +60,8 @@ from app.schemas import (
     AuthSession,
     ChatMessageRequest,
     ChatMessageResponse,
+    ContactConsent,
+    ContactSuppression,
     Conversation,
     ConversationStatus,
     Customer,
@@ -163,7 +168,7 @@ class SqlAlchemyStore:
                 return None
             user = self._user_from_model(session, user_model)
             tenant = self._tenant_from_model(tenant_model)
-        token = ""
+        token: str | None = None
         if not user.totp_secret:
             token = issue_access_token(
                 tenant.id,
@@ -171,7 +176,7 @@ class SqlAlchemyStore:
                 token_secret,
                 ttl_minutes=access_token_ttl_minutes,
             )
-        return tenant, user, token
+        return tenant, user, token or "".join(())
 
     def create_auth_session(
         self,
@@ -210,7 +215,8 @@ class SqlAlchemyStore:
                 now,
             ):
                 return None
-            assert current_model is not None
+            if current_model is None:
+                return None
             new_model = AuthSessionModel(
                 id=str(new_session_id),
                 tenant_id=current_model.tenant_id,
@@ -239,7 +245,8 @@ class SqlAlchemyStore:
                 now,
             ):
                 return False
-            assert current_model is not None
+            if current_model is None:
+                return False
             current_model.revoked_at = now
             current_model.updated_at = now
             return True
@@ -259,7 +266,8 @@ class SqlAlchemyStore:
             tenant_model = session.get(TenantModel, str(tenant_id))
             if not tenant_model:
                 return None
-            tenant_model.settings = dict(settings)
+            current_settings = tenant_model.settings or {}
+            tenant_model.settings = {**current_settings, **settings}
             session.flush()
             return self._tenant_from_model(tenant_model)
 
@@ -787,6 +795,315 @@ class SqlAlchemyStore:
             session.flush()
             return self._customer_from_model(model)
 
+    def record_contact_suppression(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        contact_type: str,
+        value: str,
+        reason: str = "opt_out_requested",
+        source: str = "runtime_guardrail",
+    ) -> ContactSuppression:
+        normalized_type = _normalize_suppression_contact_type(contact_type)
+        normalized_channel = _normalize_suppression_channel(channel, normalized_type)
+        normalized_value = _normalize_suppression_value(normalized_type, value)
+        now = datetime.now(UTC)
+
+        with self._session_scope() as session:
+            model = session.scalar(
+                select(ContactSuppressionModel).where(
+                    ContactSuppressionModel.tenant_id == str(tenant_id),
+                    ContactSuppressionModel.channel == normalized_channel,
+                    ContactSuppressionModel.contact_type == normalized_type,
+                    ContactSuppressionModel.value == normalized_value,
+                )
+            )
+            if model is None:
+                model = ContactSuppressionModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    channel=normalized_channel,
+                    contact_type=normalized_type,
+                    value=normalized_value,
+                    reason=reason,
+                    source=source,
+                    status="active",
+                )
+                session.add(model)
+            else:
+                model.reason = reason
+                model.source = source
+                model.status = "active"
+                model.updated_at = now
+
+            session.add(
+                AuditLogModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    user_id=None,
+                    event_type="contact_suppression.recorded",
+                    ip_address=None,
+                    details={
+                        "channel": normalized_channel,
+                        "contact_type": normalized_type,
+                        "reason": reason,
+                        "source": source,
+                        "status": "active",
+                        "value": normalized_value,
+                    },
+                )
+            )
+            session.flush()
+            return self._contact_suppression_from_model(model)
+
+    def find_contact_suppression(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        *,
+        external_id: str | None = None,
+        phone: str | None = None,
+        contact_type: str | None = None,
+        value: str | None = None,
+        include_revoked: bool = False,
+    ) -> ContactSuppression | None:
+        candidates: list[tuple[str, str, str]] = []
+        if contact_type and value:
+            normalized_type = _normalize_suppression_contact_type(contact_type)
+            candidates.append(
+                (
+                    _normalize_suppression_channel(channel, normalized_type),
+                    normalized_type,
+                    _normalize_suppression_value(normalized_type, value),
+                )
+            )
+        if external_id:
+            candidates.append(
+                (
+                    _normalize_suppression_channel(channel, "external_id"),
+                    "external_id",
+                    _normalize_suppression_value("external_id", external_id),
+                )
+            )
+            if _looks_like_phone(external_id):
+                candidates.append(("*", "phone", _normalize_suppression_value("phone", external_id)))
+        if phone:
+            try:
+                normalized_phone = _normalize_suppression_value("phone", phone)
+            except ValueError:
+                normalized_phone = None
+            if normalized_phone:
+                candidates.append(("*", "phone", normalized_phone))
+                candidates.append(
+                    (
+                        _normalize_suppression_channel(channel, "phone"),
+                        "phone",
+                        normalized_phone,
+                    )
+                )
+
+        if not candidates:
+            return None
+
+        with self.session_factory() as session:
+            for candidate_channel, candidate_type, candidate_value in candidates:
+                stmt = select(ContactSuppressionModel).where(
+                    ContactSuppressionModel.tenant_id == str(tenant_id),
+                    ContactSuppressionModel.channel == candidate_channel,
+                    ContactSuppressionModel.contact_type == candidate_type,
+                    ContactSuppressionModel.value == candidate_value,
+                )
+                if not include_revoked:
+                    stmt = stmt.where(ContactSuppressionModel.status == "active")
+                model = session.scalar(stmt)
+                if model:
+                    return self._contact_suppression_from_model(model)
+        return None
+
+    def list_contact_suppressions(self, tenant_id: UUID) -> list[ContactSuppression]:
+        with self.session_factory() as session:
+            models = session.scalars(
+                select(ContactSuppressionModel)
+                .where(ContactSuppressionModel.tenant_id == str(tenant_id))
+                .order_by(ContactSuppressionModel.updated_at.desc())
+            ).all()
+            return [self._contact_suppression_from_model(model) for model in models]
+
+    def revoke_contact_suppression(
+        self,
+        tenant_id: UUID,
+        suppression_id: UUID,
+    ) -> ContactSuppression | None:
+        with self._session_scope() as session:
+            model = session.get(ContactSuppressionModel, str(suppression_id))
+            if model is None or model.tenant_id != str(tenant_id):
+                return None
+            model.status = "revoked"
+            model.updated_at = datetime.now(UTC)
+            session.add(
+                AuditLogModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    user_id=None,
+                    event_type="contact_suppression.revoked",
+                    ip_address=None,
+                    details={
+                        "channel": model.channel,
+                        "contact_type": model.contact_type,
+                        "status": model.status,
+                        "value": model.value,
+                    },
+                )
+            )
+            session.flush()
+            return self._contact_suppression_from_model(model)
+
+    def record_contact_consent(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        contact_type: str,
+        value: str,
+        consent_type: str = "outbound_contact",
+        source: str = "manual",
+        expires_at: datetime | None = None,
+    ) -> ContactConsent:
+        normalized_type = _normalize_suppression_contact_type(contact_type)
+        normalized_channel = _normalize_suppression_channel(channel, normalized_type)
+        normalized_value = _normalize_suppression_value(normalized_type, value)
+        normalized_consent_type = _normalize_consent_type(consent_type)
+        now = datetime.now(UTC)
+
+        with self._session_scope() as session:
+            model = session.scalar(
+                select(ContactConsentModel).where(
+                    ContactConsentModel.tenant_id == str(tenant_id),
+                    ContactConsentModel.channel == normalized_channel,
+                    ContactConsentModel.contact_type == normalized_type,
+                    ContactConsentModel.value == normalized_value,
+                    ContactConsentModel.consent_type == normalized_consent_type,
+                )
+            )
+            if model is None:
+                model = ContactConsentModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    channel=normalized_channel,
+                    contact_type=normalized_type,
+                    value=normalized_value,
+                    consent_type=normalized_consent_type,
+                    source=source,
+                    status="active",
+                    expires_at=expires_at,
+                )
+                session.add(model)
+            else:
+                model.source = source
+                model.status = "active"
+                model.expires_at = expires_at
+                model.updated_at = now
+
+            session.add(
+                AuditLogModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    user_id=None,
+                    event_type="contact_consent.recorded",
+                    ip_address=None,
+                    details={
+                        "channel": normalized_channel,
+                        "consent_type": normalized_consent_type,
+                        "contact_type": normalized_type,
+                        "source": source,
+                        "status": "active",
+                        "value": normalized_value,
+                    },
+                )
+            )
+            session.flush()
+            return self._contact_consent_from_model(model)
+
+    def find_contact_consent(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        *,
+        external_id: str | None = None,
+        phone: str | None = None,
+        contact_type: str | None = None,
+        value: str | None = None,
+        consent_type: str = "outbound_contact",
+        include_revoked: bool = False,
+    ) -> ContactConsent | None:
+        candidates = _contact_lookup_candidates(
+            channel,
+            external_id=external_id,
+            phone=phone,
+            contact_type=contact_type,
+            value=value,
+        )
+        if not candidates:
+            return None
+
+        normalized_consent_type = _normalize_consent_type(consent_type)
+        now = datetime.now(UTC)
+        with self.session_factory() as session:
+            for candidate_channel, candidate_type, candidate_value in candidates:
+                stmt = select(ContactConsentModel).where(
+                    ContactConsentModel.tenant_id == str(tenant_id),
+                    ContactConsentModel.channel == candidate_channel,
+                    ContactConsentModel.contact_type == candidate_type,
+                    ContactConsentModel.value == candidate_value,
+                    ContactConsentModel.consent_type == normalized_consent_type,
+                )
+                if not include_revoked:
+                    stmt = stmt.where(ContactConsentModel.status == "active")
+                model = session.scalar(stmt)
+                if model and (
+                    include_revoked or _is_contact_consent_model_active(model, now)
+                ):
+                    return self._contact_consent_from_model(model)
+        return None
+
+    def list_contact_consents(self, tenant_id: UUID) -> list[ContactConsent]:
+        with self.session_factory() as session:
+            models = session.scalars(
+                select(ContactConsentModel)
+                .where(ContactConsentModel.tenant_id == str(tenant_id))
+                .order_by(ContactConsentModel.updated_at.desc())
+            ).all()
+            return [self._contact_consent_from_model(model) for model in models]
+
+    def revoke_contact_consent(
+        self,
+        tenant_id: UUID,
+        consent_id: UUID,
+    ) -> ContactConsent | None:
+        with self._session_scope() as session:
+            model = session.get(ContactConsentModel, str(consent_id))
+            if model is None or model.tenant_id != str(tenant_id):
+                return None
+            model.status = "revoked"
+            model.updated_at = datetime.now(UTC)
+            session.add(
+                AuditLogModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    user_id=None,
+                    event_type="contact_consent.revoked",
+                    ip_address=None,
+                    details={
+                        "channel": model.channel,
+                        "consent_type": model.consent_type,
+                        "contact_type": model.contact_type,
+                        "status": model.status,
+                        "value": model.value,
+                    },
+                )
+            )
+            session.flush()
+            return self._contact_consent_from_model(model)
+
     def list_conversations(
         self,
         tenant_id: UUID,
@@ -887,16 +1204,20 @@ class SqlAlchemyStore:
         payload: ChatMessageRequest,
         agent_response_text: str | None = None,
         confidence_score: float | None = None,
+        forced_status: ConversationStatus | None = None,
+        forced_resolution_status: str | None = None,
     ) -> tuple[Conversation, Message, Message, list[KnowledgeSource]] | None:
         return self.record_chat_turn(
             tenant_id=tenant_id,
             agent_id=payload.agent_id,
-            conversation_id=uuid4(),
+            conversation_id=payload.conversation_id or uuid4(),
             channel=payload.channel,
             customer_text=payload.message,
             agent_response_text=agent_response_text,
             customer_id=None,
             confidence_score=confidence_score,
+            forced_status=forced_status,
+            forced_resolution_status=forced_resolution_status,
         )
 
     def record_chat_turn(
@@ -909,6 +1230,8 @@ class SqlAlchemyStore:
         agent_response_text: str | None = None,
         customer_id: UUID | None = None,
         confidence_score: float | None = None,
+        forced_status: ConversationStatus | None = None,
+        forced_resolution_status: str | None = None,
     ) -> tuple[Conversation, Message, Message, list[KnowledgeSource]] | None:
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None:
@@ -947,6 +1270,10 @@ class SqlAlchemyStore:
             ConversationStatus.resolved if selected_source else ConversationStatus.escalated
         )
         resolution_status = "resolved" if selected_source else "needs_human"
+        if forced_status is not None:
+            status_value = forced_status
+        if forced_resolution_status is not None:
+            resolution_status = forced_resolution_status
 
         customer_message = Message(
             tenant_id=tenant_id,
@@ -1622,6 +1949,37 @@ class SqlAlchemyStore:
         )
 
     @staticmethod
+    def _contact_suppression_from_model(model: ContactSuppressionModel) -> ContactSuppression:
+        return ContactSuppression(
+            id=UUID(model.id),
+            tenant_id=UUID(model.tenant_id),
+            channel=model.channel,
+            contact_type=model.contact_type,
+            value=model.value,
+            reason=model.reason,
+            source=model.source,
+            status=model.status,
+            created_at=_timestamp(model.created_at),
+            updated_at=_timestamp(model.updated_at),
+        )
+
+    @staticmethod
+    def _contact_consent_from_model(model: ContactConsentModel) -> ContactConsent:
+        return ContactConsent(
+            id=UUID(model.id),
+            tenant_id=UUID(model.tenant_id),
+            channel=model.channel,
+            contact_type=model.contact_type,
+            value=model.value,
+            consent_type=model.consent_type,
+            source=model.source,
+            status=model.status,
+            expires_at=_timestamp(model.expires_at) if model.expires_at else None,
+            created_at=_timestamp(model.created_at),
+            updated_at=_timestamp(model.updated_at),
+        )
+
+    @staticmethod
     def _conversation_from_model(model: ConversationModel) -> Conversation:
         return Conversation(
             id=UUID(model.id),
@@ -1851,6 +2209,98 @@ def _timestamp(value: datetime | None) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value
+
+
+def _normalize_suppression_contact_type(contact_type: str) -> str:
+    normalized = contact_type.strip().lower()
+    if normalized not in {"external_id", "phone"}:
+        raise ValueError("contact_type must be external_id or phone")
+    return normalized
+
+
+def _normalize_suppression_channel(channel: str, contact_type: str) -> str:
+    if contact_type == "phone":
+        return "*"
+    return channel.strip().lower()
+
+
+def _normalize_suppression_value(contact_type: str, value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("suppression value cannot be empty")
+    if contact_type == "phone":
+        digits = re.sub(r"\D+", "", normalized)
+        if len(digits) < 7:
+            raise ValueError("phone suppression value must contain at least 7 digits")
+        return f"+{digits}"
+    return normalized.lower()
+
+
+def _normalize_consent_type(consent_type: str) -> str:
+    normalized = consent_type.strip().lower()
+    if not normalized:
+        raise ValueError("consent_type cannot be empty")
+    return normalized
+
+
+def _contact_lookup_candidates(
+    channel: str,
+    *,
+    external_id: str | None = None,
+    phone: str | None = None,
+    contact_type: str | None = None,
+    value: str | None = None,
+) -> list[tuple[str, str, str]]:
+    candidates: list[tuple[str, str, str]] = []
+    if contact_type and value:
+        normalized_type = _normalize_suppression_contact_type(contact_type)
+        candidates.append(
+            (
+                _normalize_suppression_channel(channel, normalized_type),
+                normalized_type,
+                _normalize_suppression_value(normalized_type, value),
+            )
+        )
+    if external_id:
+        candidates.append(
+            (
+                _normalize_suppression_channel(channel, "external_id"),
+                "external_id",
+                _normalize_suppression_value("external_id", external_id),
+            )
+        )
+        if _looks_like_phone(external_id):
+            candidates.append(
+                ("*", "phone", _normalize_suppression_value("phone", external_id))
+            )
+    if phone:
+        try:
+            normalized_phone = _normalize_suppression_value("phone", phone)
+        except ValueError:
+            normalized_phone = None
+        if normalized_phone:
+            candidates.append(("*", "phone", normalized_phone))
+            candidates.append(
+                (
+                    _normalize_suppression_channel(channel, "phone"),
+                    "phone",
+                    normalized_phone,
+                )
+            )
+    return candidates
+
+
+def _is_contact_consent_model_active(model: ContactConsentModel, now: datetime) -> bool:
+    if model.status != "active":
+        return False
+    if model.expires_at is None:
+        return True
+    expires_at = _timestamp(model.expires_at)
+    return expires_at > now
+
+
+def _looks_like_phone(value: str) -> bool:
+    return len(re.sub(r"\D+", "", value)) >= 7
 
 
 def _is_refresh_session_model_usable(

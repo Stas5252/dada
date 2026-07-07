@@ -36,6 +36,8 @@ def parse_url(url: str) -> str:
     parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme not in ("http", "https"):
         raise ValueError("Invalid URL scheme")
+    if parsed_url.hostname is None:
+        raise ValueError("URL hostname is required")
 
     try:
         ip = socket.gethostbyname(parsed_url.hostname)

@@ -37,17 +37,17 @@ def create_app() -> FastAPI:
     # Security: block startup if default secret is used in production
     if (
         settings.app_env not in ("local", "test", "development")
-        and settings.access_token_secret == "local-development-token-secret"
+        and settings.access_token_secret == "local-development-token-secret"  # nosec B105
     ):
         raise RuntimeError(
             "CRITICAL: ACCESS_TOKEN_SECRET is set to the insecure default. "
             "Set a strong, unique secret before deploying to production."
         )
-    elif settings.access_token_secret == "local-development-token-secret":
+    elif settings.access_token_secret == "local-development-token-secret":  # nosec B105
         import logging
 
         logging.getLogger(__name__).warning(
-            "⚠️  ACCESS_TOKEN_SECRET is using the default insecure value. "
+            "WARNING: ACCESS_TOKEN_SECRET is using the default insecure value. "
             "This is OK for local development, but MUST be changed for production."
         )
 
@@ -94,15 +94,14 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
 
-    from typing import Any
+    from typing import Any, cast
 
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.responses import Response
 
     class SecureHeadersMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next: Any) -> Response:
-            response = await call_next(request)
-            assert isinstance(response, Response)
+            response = cast(Response, await call_next(request))
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "DENY"

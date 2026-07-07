@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hmac import compare_digest
@@ -30,6 +31,8 @@ from app.schemas import (
     AuditLog,
     AuthSession,
     ChatMessageRequest,
+    ContactConsent,
+    ContactSuppression,
     Conversation,
     ConversationStatus,
     Customer,
@@ -69,6 +72,8 @@ class InMemoryStore:
     conversations: dict[UUID, Conversation] = field(default_factory=dict)
     messages: dict[UUID, Message] = field(default_factory=dict)
     customers: dict[UUID, Customer] = field(default_factory=dict)
+    contact_suppressions: dict[UUID, ContactSuppression] = field(default_factory=dict)
+    contact_consents: dict[UUID, ContactConsent] = field(default_factory=dict)
     password_hashes: dict[UUID, PasswordHash] = field(default_factory=dict)
     background_jobs: BackgroundJobBackend = field(default_factory=ThreadedBackgroundJobBackend)
     auth_sessions: dict[UUID, AuthSession] = field(default_factory=dict)
@@ -131,7 +136,7 @@ class InMemoryStore:
         tenant = self.tenants.get(user.tenant_id)
         if not tenant:
             return None
-        token = ""
+        token: str | None = None
         if not user.totp_secret:
             token = issue_access_token(
                 tenant.id,
@@ -139,7 +144,7 @@ class InMemoryStore:
                 token_secret,
                 ttl_minutes=access_token_ttl_minutes,
             )
-        return tenant, user, token
+        return tenant, user, token or "".join(())
 
     def create_auth_session(
         self,
@@ -175,7 +180,8 @@ class InMemoryStore:
             now,
         ):
             return None
-        assert current_session is not None
+        if current_session is None:
+            return None
         new_session = AuthSession(
             id=new_session_id,
             tenant_id=current_session.tenant_id,
@@ -206,7 +212,8 @@ class InMemoryStore:
             now,
         ):
             return False
-        assert current_session is not None
+        if current_session is None:
+            return False
         self.auth_sessions[current_session.id] = current_session.model_copy(
             update={"revoked_at": now, "updated_at": now}
         )
@@ -222,7 +229,8 @@ class InMemoryStore:
         tenant = self.tenants.get(tenant_id)
         if not tenant:
             return None
-        updated_tenant = tenant.model_copy(update={"settings": dict(settings)})
+        updated_settings = {**tenant.settings, **settings}
+        updated_tenant = tenant.model_copy(update={"settings": updated_settings})
         self.tenants[tenant_id] = updated_tenant
         return updated_tenant
 
@@ -764,6 +772,283 @@ class InMemoryStore:
         self.customers[customer.id] = customer
         return customer
 
+    def record_contact_suppression(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        contact_type: str,
+        value: str,
+        reason: str = "opt_out_requested",
+        source: str = "runtime_guardrail",
+    ) -> ContactSuppression:
+        normalized_type = _normalize_suppression_contact_type(contact_type)
+        normalized_channel = _normalize_suppression_channel(channel, normalized_type)
+        normalized_value = _normalize_suppression_value(normalized_type, value)
+
+        existing = self.find_contact_suppression(
+            tenant_id,
+            normalized_channel,
+            contact_type=normalized_type,
+            value=normalized_value,
+            include_revoked=True,
+        )
+        now = datetime.now(UTC)
+        if existing:
+            suppression = existing.model_copy(
+                update={
+                    "reason": reason,
+                    "source": source,
+                    "status": "active",
+                    "updated_at": now,
+                }
+            )
+            self.contact_suppressions[suppression.id] = suppression
+        else:
+            suppression = ContactSuppression(
+                tenant_id=tenant_id,
+                channel=normalized_channel,
+                contact_type=normalized_type,
+                value=normalized_value,
+                reason=reason,
+                source=source,
+                status="active",
+            )
+            self.contact_suppressions[suppression.id] = suppression
+
+        self.create_audit_log(
+            event_type="contact_suppression.recorded",
+            tenant_id=tenant_id,
+            details={
+                "channel": suppression.channel,
+                "contact_type": suppression.contact_type,
+                "reason": suppression.reason,
+                "source": suppression.source,
+                "status": suppression.status,
+                "value": suppression.value,
+            },
+        )
+        return suppression
+
+    def find_contact_suppression(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        *,
+        external_id: str | None = None,
+        phone: str | None = None,
+        contact_type: str | None = None,
+        value: str | None = None,
+        include_revoked: bool = False,
+    ) -> ContactSuppression | None:
+        candidates: list[tuple[str, str, str]] = []
+        if contact_type and value:
+            normalized_type = _normalize_suppression_contact_type(contact_type)
+            candidates.append(
+                (
+                    _normalize_suppression_channel(channel, normalized_type),
+                    normalized_type,
+                    _normalize_suppression_value(normalized_type, value),
+                )
+            )
+        if external_id:
+            candidates.append(
+                (
+                    _normalize_suppression_channel(channel, "external_id"),
+                    "external_id",
+                    _normalize_suppression_value("external_id", external_id),
+                )
+            )
+            if _looks_like_phone(external_id):
+                candidates.append(
+                    (
+                        "*",
+                        "phone",
+                        _normalize_suppression_value("phone", external_id),
+                    )
+                )
+        if phone:
+            try:
+                normalized_phone = _normalize_suppression_value("phone", phone)
+            except ValueError:
+                normalized_phone = None
+            if normalized_phone:
+                candidates.append(("*", "phone", normalized_phone))
+                candidates.append(
+                    (
+                        _normalize_suppression_channel(channel, "phone"),
+                        "phone",
+                        normalized_phone,
+                    )
+                )
+
+        for suppression in self.contact_suppressions.values():
+            if suppression.tenant_id != tenant_id:
+                continue
+            if not include_revoked and suppression.status != "active":
+                continue
+            if (suppression.channel, suppression.contact_type, suppression.value) in candidates:
+                return suppression
+        return None
+
+    def list_contact_suppressions(self, tenant_id: UUID) -> list[ContactSuppression]:
+        suppressions = [
+            suppression
+            for suppression in self.contact_suppressions.values()
+            if suppression.tenant_id == tenant_id
+        ]
+        return sorted(suppressions, key=lambda item: item.updated_at, reverse=True)
+
+    def revoke_contact_suppression(
+        self,
+        tenant_id: UUID,
+        suppression_id: UUID,
+    ) -> ContactSuppression | None:
+        suppression = self.contact_suppressions.get(suppression_id)
+        if not suppression or suppression.tenant_id != tenant_id:
+            return None
+        updated = suppression.model_copy(
+            update={"status": "revoked", "updated_at": datetime.now(UTC)}
+        )
+        self.contact_suppressions[updated.id] = updated
+        self.create_audit_log(
+            event_type="contact_suppression.revoked",
+            tenant_id=tenant_id,
+            details={
+                "channel": updated.channel,
+                "contact_type": updated.contact_type,
+                "status": updated.status,
+                "value": updated.value,
+            },
+        )
+        return updated
+
+    def record_contact_consent(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        contact_type: str,
+        value: str,
+        consent_type: str = "outbound_contact",
+        source: str = "manual",
+        expires_at: datetime | None = None,
+    ) -> ContactConsent:
+        normalized_type = _normalize_suppression_contact_type(contact_type)
+        normalized_channel = _normalize_suppression_channel(channel, normalized_type)
+        normalized_value = _normalize_suppression_value(normalized_type, value)
+        normalized_consent_type = _normalize_consent_type(consent_type)
+
+        existing = self.find_contact_consent(
+            tenant_id,
+            normalized_channel,
+            contact_type=normalized_type,
+            value=normalized_value,
+            consent_type=normalized_consent_type,
+            include_revoked=True,
+        )
+        now = datetime.now(UTC)
+        if existing:
+            consent = existing.model_copy(
+                update={
+                    "source": source,
+                    "status": "active",
+                    "expires_at": expires_at,
+                    "updated_at": now,
+                }
+            )
+            self.contact_consents[consent.id] = consent
+        else:
+            consent = ContactConsent(
+                tenant_id=tenant_id,
+                channel=normalized_channel,
+                contact_type=normalized_type,
+                value=normalized_value,
+                consent_type=normalized_consent_type,
+                source=source,
+                status="active",
+                expires_at=expires_at,
+            )
+            self.contact_consents[consent.id] = consent
+
+        self.create_audit_log(
+            event_type="contact_consent.recorded",
+            tenant_id=tenant_id,
+            details={
+                "channel": consent.channel,
+                "consent_type": consent.consent_type,
+                "contact_type": consent.contact_type,
+                "source": consent.source,
+                "status": consent.status,
+                "value": consent.value,
+            },
+        )
+        return consent
+
+    def find_contact_consent(
+        self,
+        tenant_id: UUID,
+        channel: str,
+        *,
+        external_id: str | None = None,
+        phone: str | None = None,
+        contact_type: str | None = None,
+        value: str | None = None,
+        consent_type: str = "outbound_contact",
+        include_revoked: bool = False,
+    ) -> ContactConsent | None:
+        candidates = _contact_lookup_candidates(
+            channel,
+            external_id=external_id,
+            phone=phone,
+            contact_type=contact_type,
+            value=value,
+        )
+        normalized_consent_type = _normalize_consent_type(consent_type)
+        now = datetime.now(UTC)
+
+        for consent in self.contact_consents.values():
+            if consent.tenant_id != tenant_id:
+                continue
+            if consent.consent_type != normalized_consent_type:
+                continue
+            if not include_revoked and not _is_contact_consent_active(consent, now):
+                continue
+            if (consent.channel, consent.contact_type, consent.value) in candidates:
+                return consent
+        return None
+
+    def list_contact_consents(self, tenant_id: UUID) -> list[ContactConsent]:
+        consents = [
+            consent
+            for consent in self.contact_consents.values()
+            if consent.tenant_id == tenant_id
+        ]
+        return sorted(consents, key=lambda item: item.updated_at, reverse=True)
+
+    def revoke_contact_consent(
+        self,
+        tenant_id: UUID,
+        consent_id: UUID,
+    ) -> ContactConsent | None:
+        consent = self.contact_consents.get(consent_id)
+        if not consent or consent.tenant_id != tenant_id:
+            return None
+        updated = consent.model_copy(
+            update={"status": "revoked", "updated_at": datetime.now(UTC)}
+        )
+        self.contact_consents[updated.id] = updated
+        self.create_audit_log(
+            event_type="contact_consent.revoked",
+            tenant_id=tenant_id,
+            details={
+                "channel": updated.channel,
+                "consent_type": updated.consent_type,
+                "contact_type": updated.contact_type,
+                "status": updated.status,
+                "value": updated.value,
+            },
+        )
+        return updated
+
     def count_messages(self, tenant_id: UUID, since: datetime | None = None) -> int:
         return sum(
             1 for m in self.messages.values()
@@ -773,6 +1058,8 @@ class InMemoryStore:
     def answer_chat(
         self, tenant_id: UUID, payload: ChatMessageRequest, agent_response_text: str | None = None,
         confidence_score: float | None = None,
+        forced_status: ConversationStatus | None = None,
+        forced_resolution_status: str | None = None,
     ) -> (
         tuple[
             Conversation,
@@ -785,12 +1072,14 @@ class InMemoryStore:
         return self.record_chat_turn(
             tenant_id=tenant_id,
             agent_id=payload.agent_id,
-            conversation_id=uuid4(),
+            conversation_id=payload.conversation_id or uuid4(),
             channel=payload.channel,
             customer_text=payload.message,
             agent_response_text=agent_response_text,
             customer_id=None,
             confidence_score=confidence_score,
+            forced_status=forced_status,
+            forced_resolution_status=forced_resolution_status,
         )
 
     def record_chat_turn(
@@ -803,6 +1092,8 @@ class InMemoryStore:
         agent_response_text: str | None = None,
         customer_id: UUID | None = None,
         confidence_score: float | None = None,
+        forced_status: ConversationStatus | None = None,
+        forced_resolution_status: str | None = None,
     ) -> tuple[Conversation, Message, Message, list[KnowledgeSource]] | None:
         agent = self.agents.get(agent_id)
         if not agent or agent.tenant_id != tenant_id:
@@ -837,6 +1128,10 @@ class InMemoryStore:
             ConversationStatus.resolved if selected_source else ConversationStatus.escalated
         )
         resolution_status = "resolved" if selected_source else "needs_human"
+        if forced_status is not None:
+            status_value = forced_status
+        if forced_resolution_status is not None:
+            resolution_status = forced_resolution_status
         conversation = self.conversations.get(conversation_id)
         if conversation:
             if conversation.tenant_id != tenant_id or conversation.agent_id != agent_id:
@@ -1107,3 +1402,101 @@ def _is_refresh_session_usable(
         session.refresh_token_hash,
         presented_refresh_token_hash,
     )
+
+
+def _normalize_suppression_contact_type(contact_type: str) -> str:
+    normalized = contact_type.strip().lower()
+    if normalized not in {"external_id", "phone"}:
+        raise ValueError("contact_type must be external_id or phone")
+    return normalized
+
+
+def _normalize_suppression_channel(channel: str, contact_type: str) -> str:
+    if contact_type == "phone":
+        return "*"
+    return channel.strip().lower()
+
+
+def _normalize_suppression_value(contact_type: str, value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("suppression value cannot be empty")
+    if contact_type == "phone":
+        digits = re.sub(r"\D+", "", normalized)
+        if len(digits) < 7:
+            raise ValueError("phone suppression value must contain at least 7 digits")
+        return f"+{digits}"
+    return normalized.lower()
+
+
+def _normalize_consent_type(consent_type: str) -> str:
+    normalized = consent_type.strip().lower()
+    if not normalized:
+        raise ValueError("consent_type cannot be empty")
+    return normalized
+
+
+def _contact_lookup_candidates(
+    channel: str,
+    *,
+    external_id: str | None = None,
+    phone: str | None = None,
+    contact_type: str | None = None,
+    value: str | None = None,
+) -> list[tuple[str, str, str]]:
+    candidates: list[tuple[str, str, str]] = []
+    if contact_type and value:
+        normalized_type = _normalize_suppression_contact_type(contact_type)
+        candidates.append(
+            (
+                _normalize_suppression_channel(channel, normalized_type),
+                normalized_type,
+                _normalize_suppression_value(normalized_type, value),
+            )
+        )
+    if external_id:
+        candidates.append(
+            (
+                _normalize_suppression_channel(channel, "external_id"),
+                "external_id",
+                _normalize_suppression_value("external_id", external_id),
+            )
+        )
+        if _looks_like_phone(external_id):
+            candidates.append(
+                (
+                    "*",
+                    "phone",
+                    _normalize_suppression_value("phone", external_id),
+                )
+            )
+    if phone:
+        try:
+            normalized_phone = _normalize_suppression_value("phone", phone)
+        except ValueError:
+            normalized_phone = None
+        if normalized_phone:
+            candidates.append(("*", "phone", normalized_phone))
+            candidates.append(
+                (
+                    _normalize_suppression_channel(channel, "phone"),
+                    "phone",
+                    normalized_phone,
+                )
+            )
+    return candidates
+
+
+def _is_contact_consent_active(consent: ContactConsent, now: datetime) -> bool:
+    if consent.status != "active":
+        return False
+    if consent.expires_at is None:
+        return True
+    expires_at = consent.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return expires_at > now
+
+
+def _looks_like_phone(value: str) -> bool:
+    return len(re.sub(r"\D+", "", value)) >= 7

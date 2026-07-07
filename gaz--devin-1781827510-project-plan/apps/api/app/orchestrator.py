@@ -5,8 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from app.channel_policy import channel_policy_for_settings
+from app.guard_rails import GuardRailDecision, RuntimeGuardRails, guardrail_policy_from_settings
 from app.llm_router import LLMRouter, RoutingStrategy
 from app.rag import RetrievalResult, retrieve_sources
+from app.schemas import ConversationStatus
 from app.store_factory import AppStore
 
 
@@ -15,6 +18,9 @@ class OrchestratorResult:
     response_text: str
     confidence_score: float | None
     retrieval_results: list[RetrievalResult]
+    forced_status: ConversationStatus | None = None
+    forced_resolution_status: str | None = None
+    guardrail_code: str | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,31 @@ class AgentOrchestrator:
                 return OrchestratorResult("Извините, агент не настроен.", None, [])
             tenant = self.store.get_tenant(tenant_id)
             tenant_settings = tenant.settings if tenant else None
+            guardrail_policy = guardrail_policy_from_settings(tenant_settings)
+            channel_policy = channel_policy_for_settings(tenant_settings, channel)
+
+            inbound_decision = RuntimeGuardRails.evaluate_inbound_message(
+                customer_message,
+                guardrail_policy,
+            )
+            if inbound_decision:
+                self._audit_guardrail_decision(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    channel=channel,
+                    decision=inbound_decision,
+                    sample=customer_message,
+                    phase="inbound",
+                )
+                if inbound_decision.action in {"escalate", "opt_out"}:
+                    await self._notify_escalation(
+                        tenant_id=tenant_id,
+                        conversation_id=conversation_id,
+                        agent_name=agent.name,
+                        customer_text=customer_message,
+                    )
+                return self._guardrail_result(inbound_decision)
 
             # Memory Summarization trigger for long conversations (exceeding 10 messages)
             detail = self.store.get_conversation_detail(tenant_id, conversation_id)
@@ -93,7 +124,7 @@ class AgentOrchestrator:
                         except Exception as e:
                             logger.error("Failed to generate memory summary: %s", e)
 
-            previous_messages = []
+            previous_messages: list[Any] = []
             if detail:
                 _, previous_messages, _ = detail
 
@@ -107,19 +138,6 @@ class AgentOrchestrator:
                 conversation_id,
                 customer_message,
             )
-
-            # Pre-Execution Guard Rails
-            from app.guard_rails import RuntimeGuardRails
-            guard_error = RuntimeGuardRails.check_inbound_message(customer_message)
-            if guard_error:
-                self.store.create_audit_log(
-                    tenant_id=tenant_id,
-                    user_id=None,
-                    event_type="guardrail.blocked.inbound",
-                    ip_address=None,
-                    details={"agent_id": str(agent_id), "conversation_id": str(conversation_id), "reason": guard_error, "message": customer_message}
-                )
-                return OrchestratorResult(guard_error, None, [])
 
             order_draft = self.store.get_order_draft(tenant_id, conversation_id)
 
@@ -146,6 +164,8 @@ class AgentOrchestrator:
                 channel=channel,
                 retrieval_results=retrieval_results,
                 order_draft=order_draft,
+                guardrail_policy=guardrail_policy,
+                channel_policy=channel_policy,
             )
             messages = [{"role": "system", "content": system_prompt}] + history_msgs
             strategy = (
@@ -252,7 +272,33 @@ class AgentOrchestrator:
 
                 for tc in tool_calls:
                     func_name = tc.function.name
-                    kwargs = json.loads(tc.function.arguments) if hasattr(tc.function, "arguments") else {}
+                    raw_kwargs = json.loads(tc.function.arguments) if hasattr(tc.function, "arguments") else {}
+                    kwargs = raw_kwargs if isinstance(raw_kwargs, dict) else {}
+
+                    tool_decision = RuntimeGuardRails.evaluate_tool_call(
+                        func_name,
+                        kwargs,
+                        customer_message,
+                        guardrail_policy,
+                    )
+                    if tool_decision:
+                        self._audit_guardrail_decision(
+                            tenant_id=tenant_id,
+                            agent_id=agent_id,
+                            conversation_id=conversation_id,
+                            channel=channel,
+                            decision=tool_decision,
+                            sample=f"{func_name}: {json.dumps(kwargs, ensure_ascii=False)}",
+                            phase="tool_call",
+                        )
+                        if tool_decision.action in {"escalate", "opt_out"}:
+                            await self._notify_escalation(
+                                tenant_id=tenant_id,
+                                conversation_id=conversation_id,
+                                agent_name=agent.name,
+                                customer_text=customer_message,
+                            )
+                        return self._guardrail_result(tool_decision, retrieval_results, top_confidence)
 
                     # Check if confirmation matches
                     idempotency_key = f"{tenant_id}:{func_name}:{conversation_id}"
@@ -289,17 +335,12 @@ class AgentOrchestrator:
 
                     if func_name == "escalate_to_human":
                         # Notify connected operators in real-time
-                        try:
-                            from app.api.v1.operator_ws import notify_escalation
-                            agent_name_for_notif = agent.name if agent else "Unknown"
-                            await notify_escalation(
-                                conversation_id=str(conversation_id),
-                                tenant_id=str(tenant_id),
-                                agent_name=agent_name_for_notif,
-                                customer_text=customer_message,
-                            )
-                        except Exception as notif_exc:
-                            logger.warning("Failed to notify operators: %s", notif_exc)
+                        await self._notify_escalation(
+                            tenant_id=tenant_id,
+                            conversation_id=conversation_id,
+                            agent_name=agent.name,
+                            customer_text=customer_message,
+                        )
                         return OrchestratorResult(exec_result["message"], top_confidence, retrieval_results)
                     else:
                         # Feed system result back to LLM to continue turn
@@ -313,22 +354,115 @@ class AgentOrchestrator:
                                 max_tokens=voice_max_tokens,
                                 tenant_settings=tenant_settings,
                             )
+                        post_tool_decision = RuntimeGuardRails.evaluate_outbound_message(
+                            content,
+                            guardrail_policy,
+                        )
+                        if post_tool_decision:
+                            self._audit_guardrail_decision(
+                                tenant_id=tenant_id,
+                                agent_id=agent_id,
+                                conversation_id=conversation_id,
+                                channel=channel,
+                                decision=post_tool_decision,
+                                sample=content,
+                                phase="outbound",
+                            )
+                            await self._notify_escalation(
+                                tenant_id=tenant_id,
+                                conversation_id=conversation_id,
+                                agent_name=agent.name,
+                                customer_text=customer_message,
+                            )
+                            return self._guardrail_result(post_tool_decision, retrieval_results, top_confidence)
                         return OrchestratorResult(content, top_confidence, retrieval_results)
 
             # Post-Execution Guard Rails
             if content:
-                post_error = RuntimeGuardRails.check_outbound_message(content)
-                if post_error:
-                    self.store.create_audit_log(
+                post_decision = RuntimeGuardRails.evaluate_outbound_message(
+                    content,
+                    guardrail_policy,
+                )
+                if post_decision:
+                    self._audit_guardrail_decision(
                         tenant_id=tenant_id,
-                        user_id=None,
-                        event_type="guardrail.blocked.outbound",
-                        ip_address=None,
-                        details={"agent_id": str(agent_id), "conversation_id": str(conversation_id), "reason": post_error, "message": content}
+                        agent_id=agent_id,
+                        conversation_id=conversation_id,
+                        channel=channel,
+                        decision=post_decision,
+                        sample=content,
+                        phase="outbound",
                     )
-                    content = post_error
+                    await self._notify_escalation(
+                        tenant_id=tenant_id,
+                        conversation_id=conversation_id,
+                        agent_name=agent.name,
+                        customer_text=customer_message,
+                    )
+                    return self._guardrail_result(post_decision, retrieval_results, top_confidence)
 
             return OrchestratorResult(content, top_confidence, retrieval_results)
+
+    def _audit_guardrail_decision(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        conversation_id: UUID,
+        channel: str,
+        decision: GuardRailDecision,
+        sample: str,
+        phase: str,
+    ) -> None:
+        details = decision.audit_details(
+            agent_id=str(agent_id),
+            conversation_id=str(conversation_id),
+            channel=channel,
+            sample=sample,
+        )
+        details["phase"] = phase
+        self.store.create_audit_log(
+            tenant_id=tenant_id,
+            user_id=None,
+            event_type=f"guardrail.{decision.action}.{phase}",
+            ip_address=None,
+            details=details,
+        )
+
+    async def _notify_escalation(
+        self,
+        *,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        agent_name: str,
+        customer_text: str,
+    ) -> None:
+        try:
+            from app.api.v1.operator_ws import notify_escalation
+
+            await notify_escalation(
+                conversation_id=str(conversation_id),
+                tenant_id=str(tenant_id),
+                agent_name=agent_name,
+                customer_text=customer_text,
+            )
+        except Exception as notif_exc:
+            logger.warning("Failed to notify operators: %s", notif_exc)
+
+    @staticmethod
+    def _guardrail_result(
+        decision: GuardRailDecision,
+        retrieval_results: list[RetrievalResult] | None = None,
+        confidence_score: float | None = None,
+    ) -> OrchestratorResult:
+        return OrchestratorResult(
+            response_text=decision.message,
+            confidence_score=confidence_score,
+            retrieval_results=retrieval_results or [],
+            forced_status=decision.forced_status,
+            forced_resolution_status=decision.forced_resolution_status,
+            guardrail_code=decision.code,
+        )
 
     def _build_conversation_history(
         self,
@@ -372,6 +506,8 @@ class AgentOrchestrator:
         channel: str,
         retrieval_results: Sequence[object],
         order_draft: Any = None,
+        guardrail_policy: Any = None,
+        channel_policy: Any = None,
     ) -> str:
         parts: list[str] = [
             f'You are an AI assistant named "{agent_name}".',
@@ -402,6 +538,22 @@ class AgentOrchestrator:
             agent_prompt,
             "",
         ]
+
+        if getattr(guardrail_policy, "ai_disclosure_required", False) or getattr(
+            channel_policy,
+            "ai_disclosure_required",
+            False,
+        ):
+            parts.extend(
+                [
+                    "AI DISCLOSURE:",
+                    (
+                        "- Be transparent that you are an AI assistant for this company "
+                        "when the customer asks who they are speaking with or at the start of a regulated workflow."
+                    ),
+                    "",
+                ]
+            )
 
         if order_draft and order_draft.items:
             cart_lines = [f"- {item.product_name} x {item.quantity} ({item.price_per_unit} руб/шт)" for item in order_draft.items]

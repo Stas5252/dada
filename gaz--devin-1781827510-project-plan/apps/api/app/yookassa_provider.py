@@ -55,7 +55,7 @@ class YooKassaProvider:
             }, idempotence_key)
             
             if hasattr(payment, "confirmation") and hasattr(payment.confirmation, "confirmation_url"):
-                return payment.confirmation.confirmation_url
+                return str(payment.confirmation.confirmation_url)
             return None
         except Exception as e:
             logger.error(f"YooKassa create payment error: {e}")

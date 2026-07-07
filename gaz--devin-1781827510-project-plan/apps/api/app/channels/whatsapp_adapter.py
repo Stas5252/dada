@@ -162,7 +162,8 @@ class WhatsAppChannelAdapter:
             payload["context"] = {"message_id": message.reply_to_message_id}
 
         try:
-            async with httpx.AsyncClient() as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport()) as client:
                 response = await client.post(url, headers=headers, json=payload, timeout=10.0)
                 data = response.json()
                 

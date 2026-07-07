@@ -113,7 +113,8 @@ class VKChannelAdapter:
         # For simplicity, we just send standard text message.
 
         try:
-            async with httpx.AsyncClient() as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport()) as client:
                 response = await client.post(url, data=params, timeout=10.0)
                 data = response.json()
                 

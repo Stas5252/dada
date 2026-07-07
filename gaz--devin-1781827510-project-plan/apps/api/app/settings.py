@@ -40,6 +40,7 @@ class Settings(BaseSettings):
         default="local-development-token-secret",
         alias="ACCESS_TOKEN_SECRET",
     )
+    fernet_key: str = Field(default="", alias="FERNET_KEY")
     access_token_ttl_minutes: int = Field(default=15, alias="ACCESS_TOKEN_TTL_MINUTES")
     refresh_token_ttl_days: int = Field(default=30, alias="REFRESH_TOKEN_TTL_DAYS")
     store_backend: str = Field(default="sqlalchemy", alias="STORE_BACKEND")

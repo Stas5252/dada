@@ -24,10 +24,11 @@ class ProviderReadiness(BaseModel):
 
 
 class ReadinessResponse(BaseModel):
-    status: Literal["ready", "degraded"]
+    status: Literal["ready", "degraded", "mock_only"]
     service: str
     environment: str
     store_backend: str
+    rls_enabled: bool
     providers: list[ProviderReadiness]
     checked_at: datetime
 
@@ -82,14 +83,20 @@ async def readiness(settings: Settings = Depends(get_settings)) -> ReadinessResp
             detail="ASTERISK_ARI_USERNAME + ASTERISK_ARI_PASSWORD",
         ),
     ]
-    status: Literal["ready", "degraded"] = (
-        "ready" if all(provider.status == "configured" for provider in providers) else "degraded"
-    )
+    
+    if any(p.status == "missing_secret" for p in providers):
+        status = "degraded"
+    elif any(p.status == "local_stub" for p in providers):
+        status = "mock_only"
+    else:
+        status = "ready"
+
     return ReadinessResponse(
         status=status,
         service=settings.service_name,
         environment=settings.app_env,
         store_backend=settings.store_backend,
+        rls_enabled=settings.store_backend == "sqlalchemy",
         providers=providers,
         checked_at=datetime.now(UTC),
     )

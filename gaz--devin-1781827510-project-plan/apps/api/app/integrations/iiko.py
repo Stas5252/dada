@@ -31,7 +31,8 @@ class IikoCloudClient:
 
     async def get_menu(self, organization_id: str) -> dict[str, Any]:
         """Fetch nomenclature (menu) from iiko."""
-        async with httpx.AsyncClient() as client:
+        from app.security import SSRFTransport
+        async with httpx.AsyncClient(transport=SSRFTransport()) as client:
             await self._authenticate(client)
             headers = {"Authorization": f"Bearer {self._token}"}
             payload = {
@@ -62,7 +63,8 @@ class IikoCloudClient:
         Creates a delivery order in iiko.
         order_items format: [{"productId": "...", "amount": 1}]
         """
-        async with httpx.AsyncClient() as client:
+        from app.security import SSRFTransport
+        async with httpx.AsyncClient(transport=SSRFTransport()) as client:
             await self._authenticate(client)
             headers = {"Authorization": f"Bearer {self._token}"}
             

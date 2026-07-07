@@ -209,3 +209,36 @@ def _b64decode(value: str) -> bytes:
         return base64.urlsafe_b64decode(value + padding)
     except (binascii.Error, ValueError) as exc:
         raise AccessTokenError("base64 value is invalid") from exc
+
+
+import ipaddress
+import socket
+import httpx
+import urllib.parse
+
+class SSRFError(ValueError):
+    pass
+
+class SSRFTransport(httpx.AsyncBaseTransport):
+    def __init__(self, inner_transport: httpx.AsyncBaseTransport | None = None):
+        self.inner_transport = inner_transport or httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        parsed = urllib.parse.urlparse(str(request.url))
+        if parsed.hostname is None:
+            raise SSRFError("URL hostname is required")
+        try:
+            ip = socket.gethostbyname(parsed.hostname)
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+                raise SSRFError(f"Access to private IP addresses ({ip}) is forbidden")
+        except Exception as e:
+            if isinstance(e, SSRFError):
+                raise
+            raise SSRFError(f"URL validation failed: {str(e)}") from e
+
+        return await self.inner_transport.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        if hasattr(self.inner_transport, 'aclose'):
+            await self.inner_transport.aclose()

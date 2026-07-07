@@ -292,7 +292,8 @@ class YandexStreamingSTT(StreamingSTT):
             pcm_8k, _ = audioop.ulaw2lin(bytes(self.buffer), 2)
             self.buffer.clear()
             
-            async with httpx.AsyncClient() as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport()) as client:
                 try:
                     resp = await client.post(
                         self.url,
@@ -328,7 +329,8 @@ class YandexStreamingTTS(StreamingTTS):
             "sampleRateHertz": "8000"
         }
         
-        async with httpx.AsyncClient() as client:
+        from app.security import SSRFTransport
+        async with httpx.AsyncClient(transport=SSRFTransport()) as client:
             try:
                 async with client.stream(
                     "POST",

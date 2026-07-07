@@ -199,7 +199,8 @@ class LocalTelegramAdapter:
         external_message_id = _stable_external_id("telegram-message", message.idempotency_key)
 
         if settings.telegram_bot_token:
-            async with httpx.AsyncClient() as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport()) as client:
                 res = await client.post(
                     f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
                     json={"chat_id": message.chat_id, "text": message.text},

@@ -159,6 +159,11 @@ async def refresh(
         ttl_minutes=settings.access_token_ttl_minutes,
     )
     access_expires_at = verify_access_token(access_token, settings.access_token_secret).expires_at
+    app_store.create_audit_log(
+        "auth.refresh",
+        user_id=user.id,
+        tenant_id=session.tenant_id,
+    )
     return RefreshTokenResponse(
         access_token=access_token,
         refresh_token=new_refresh_token,
@@ -221,6 +226,12 @@ async def request_password_reset(
             datetime.now(UTC) + timedelta(hours=1),
         )
         send_password_reset_email(user.email, reset_token_str)
+        app_store.create_audit_log(
+            "auth.password_reset_requested",
+            user_id=user.id,
+            tenant_id=user.tenant_id,
+            ip_address=request.client.host if request.client else None,
+        )
     # Always return 204 to prevent email enumeration
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -239,6 +250,12 @@ async def reset_password(
     new_hash = hash_password(payload.new_password)
     if not app_store.update_user_password(token.user_id, new_hash):
         raise HTTPException(status_code=400, detail="User not found")
+    
+    app_store.create_audit_log(
+        "auth.password_reset_completed",
+        user_id=token.user_id,
+        ip_address=request.client.host if request.client else None,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

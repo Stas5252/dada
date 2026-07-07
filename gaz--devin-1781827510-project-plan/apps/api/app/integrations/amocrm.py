@@ -31,7 +31,8 @@ class AmoCRMClient:
         Creates a Lead and a Contact in AmoCRM, links them together.
         Returns the created lead info.
         """
-        async with httpx.AsyncClient() as client:
+        from app.security import SSRFTransport
+        async with httpx.AsyncClient(transport=SSRFTransport()) as client:
             # 1. Create a contact if phone is provided
             contact_id = None
             if phone:

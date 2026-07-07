@@ -12,6 +12,43 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
+from cryptography.fernet import Fernet
+from app.settings import get_settings
+
+
+class EncryptedString(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @property
+    def _fernet(self) -> Fernet | None:
+        key = get_settings().fernet_key
+        if not key:
+            return None
+        return Fernet(key.encode())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        f = self._fernet
+        if not f:
+            return value
+        return f.encrypt(value.encode()).decode()
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        f = self._fernet
+        if not f:
+            return value
+        try:
+            return f.decrypt(value.encode()).decode()
+        except Exception:
+            return value
 
 
 class Base(DeclarativeBase):
@@ -135,7 +172,7 @@ class AgentModel(Base):
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.3)
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
     model_name: Mapped[str] = mapped_column(String(120), nullable=False, default="gpt-4o-mini")
-    telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    telegram_bot_token: Mapped[str | None] = mapped_column(EncryptedString(255), nullable=True)
     pathway_nodes: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     pathway_edges: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     business_profile: Mapped[str | None] = mapped_column(Text, nullable=True)

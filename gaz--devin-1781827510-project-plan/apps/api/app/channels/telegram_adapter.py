@@ -98,7 +98,8 @@ class TelegramChannelAdapter:
             if message.reply_to_message_id:
                 payload["reply_to_message_id"] = message.reply_to_message_id
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport(), timeout=10.0) as client:
                 response = await client.post(url, json=payload)
 
             if response.status_code == 200:
@@ -132,7 +133,8 @@ class TelegramChannelAdapter:
                 "text": message.text,
             }
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport(), timeout=10.0) as client:
                 response = await client.post(url, json=payload)
 
             if response.status_code == 200:
@@ -157,7 +159,8 @@ class TelegramChannelAdapter:
             payload = {"url": webhook_url}
             if secret_token:
                 payload["secret_token"] = secret_token
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            from app.security import SSRFTransport
+            async with httpx.AsyncClient(transport=SSRFTransport(), timeout=10.0) as client:
                 response = await client.post(url, json=payload)
             success = response.status_code == 200
             if success:

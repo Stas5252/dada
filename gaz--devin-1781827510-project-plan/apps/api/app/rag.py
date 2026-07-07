@@ -35,8 +35,8 @@ def content_hash(content: str) -> str:
     return sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def chunk_text(content: str, max_chars: int = 1500) -> list[str]:
-    # Better chunking: split by paragraphs, then combine them to fit max_chars.
+def chunk_text(content: str, max_chars: int = 1500, overlap_chars: int = 300) -> list[str]:
+    """Split text by paragraphs with max_chars limit and overlap_chars overlap."""
     if not content:
         return []
         
@@ -48,12 +48,30 @@ def chunk_text(content: str, max_chars: int = 1500) -> list[str]:
     current_chunk: list[str] = []
     current_length = 0
     
-    for p in paragraphs:
+    for i, p in enumerate(paragraphs):
         p_len = len(p)
         if current_length + p_len > max_chars and current_chunk:
             chunks.append("\n\n".join(current_chunk))
-            current_chunk = [p]
-            current_length = p_len
+            
+            # Start new chunk with overlap
+            # Find paragraphs to keep from the end of the current_chunk
+            actual_overlap_limit = min(overlap_chars, max(0, max_chars - p_len - 2))
+            overlap_length = 0
+            overlap_paras = []
+            for op in reversed(current_chunk):
+                if overlap_length + len(op) > overlap_chars:
+                    break
+                overlap_paras.insert(0, op)
+                overlap_length += len(op) + 2
+                
+            current_chunk = overlap_paras + [p]
+            current_length = overlap_length + p_len + 2
+            
+            # If the current chunk is somehow too large again (e.g. p_len is large),
+            # we should make sure we don't exceed max_chars unless it's just a single paragraph
+            while current_length > max_chars and len(current_chunk) > 1:
+                removed = current_chunk.pop(0)
+                current_length -= len(removed) + 2
         else:
             current_chunk.append(p)
             current_length += p_len + 2 # +2 for \n\n
@@ -76,7 +94,7 @@ def _get_qdrant_client() -> QdrantClient:
 @lru_cache
 def _get_local_embedding_model() -> Any:
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer("all-MiniLM-L6-v2")
+    return SentenceTransformer("intfloat/multilingual-e5-small")
 
 
 def _get_openai_client() -> openai.Client:
@@ -284,9 +302,8 @@ def retrieve_sources(
     ranked_results: list[RetrievalResult] = []
     for point, score in zip(search_result.points, scores, strict=False):
         # Confidence gating: "no answer policy" if score is too low
-        # We use -2.0 as a lenient threshold for tests, but practically >0 is better for prod.
-        # Given tests might use weird terms, let's keep it relatively lenient but filter garbage.
-        if score < -5.0:
+        # For production with cross-encoder, >0 is usually relevant. We use 0.0 as threshold.
+        if score < 0.0:
             continue
 
         payload = point.payload or {}

@@ -60,8 +60,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     deepgram_api_key: str = Field(default="", alias="DEEPGRAM_API_KEY")
     yandex_api_key: str = Field(default="", alias="YANDEX_API_KEY")
+    crm_webhook_url: str = Field(default="", alias="CRM_WEBHOOK_URL")
 
     # Payment / YooKassa
+    billing_test_mode: bool = Field(default=True, alias="BILLING_TEST_MODE")
     yookassa_shop_id: str = Field(default="", alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: str = Field(default="", alias="YOOKASSA_SECRET_KEY")
     iiko_api_login: str = Field(default="", alias="IIKO_API_LOGIN")

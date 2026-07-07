@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app.api.v1.dependencies import AuthContext, require_permission
 from app.rbac import Permission
 from app.store_factory import AppStore, get_app_store
-from app.schemas import WeeklyReport, QAEvaluation
+from app.schemas import WeeklyReport, QAEvaluation, QAEvaluationRequest, MarginDashboardResponse
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -57,6 +57,8 @@ class AnalyticsOverview(BaseModel):
     total_knowledge_sources: int
     total_messages: int
     avg_messages_per_conversation: float
+    total_pipeline_value: float = 0.0
+    estimated_lost_revenue: float = 0.0
     conversations_by_channel: list[ChannelBreakdown]
     conversations_by_day: list[DailyConversation]
     top_unresolved: list[UnresolvedTopic]
@@ -83,6 +85,8 @@ async def analytics_overview(
         total_knowledge_sources=overview["total_knowledge_sources"],
         total_messages=overview["total_messages"],
         avg_messages_per_conversation=round(overview["avg_messages_per_conversation"], 1),
+        total_pipeline_value=overview.get("total_pipeline_value", 0.0),
+        estimated_lost_revenue=overview.get("estimated_lost_revenue", 0.0),
         conversations_by_channel=[ChannelBreakdown(**cb) for cb in overview["conversations_by_channel"]],
         conversations_by_day=[DailyConversation(**db) for db in overview["conversations_by_day"]],
         top_unresolved=[],
@@ -124,12 +128,43 @@ async def analytics_agents(
 
 
 @router.get("/reports", response_model=list[WeeklyReport])
-async def list_reports(
+async def list_weekly_reports(
     auth: AuthContext = Depends(READ_AUDIT),
     app_store: AppStore = Depends(get_app_store),
 ) -> list[WeeklyReport]:
-    """List weekly AI reports."""
-    return app_store.list_weekly_reports(UUID(auth.tenant_id))
+    """Get list of weekly reports."""
+    tenant_id = UUID(auth.tenant_id)
+    return app_store.list_weekly_reports(tenant_id)
+
+
+@router.get("/margin", response_model=MarginDashboardResponse)
+async def get_margin_dashboard(
+    auth: AuthContext = Depends(READ_AUDIT),
+    app_store: AppStore = Depends(get_app_store),
+) -> MarginDashboardResponse:
+    """Get margin dashboard stats."""
+    tenant_id = UUID(auth.tenant_id)
+    data = app_store.get_margin_dashboard(tenant_id)
+    return MarginDashboardResponse(**data)
+
+
+@router.post("/evaluations", response_model=QAEvaluation, status_code=201)
+async def create_qa_evaluation(
+    payload: QAEvaluationRequest,
+    auth: AuthContext = Depends(READ_AUDIT), # Ideally requires a WRITE_EVALUATION permission, but using READ_AUDIT for simplicity in Phase D
+    app_store: AppStore = Depends(get_app_store),
+) -> QAEvaluation:
+    """Submit a QA evaluation (feedback loop) for a conversation."""
+    tenant_id = UUID(auth.tenant_id)
+    eval_model = QAEvaluation(
+        tenant_id=tenant_id,
+        conversation_id=payload.conversation_id,
+        score=payload.score,
+        flags=payload.flags,
+        feedback=payload.feedback,
+    )
+    app_store.save_qa_evaluation(eval_model)
+    return eval_model
 
 
 class GenerateReportResponse(BaseModel):

@@ -83,14 +83,18 @@ def create_app() -> FastAPI:
         
         pool = None
         if settings.app_env != "test" and "pytest" not in sys.modules:
-            parsed = urllib.parse.urlparse(settings.redis_url)
-            redis_settings = RedisSettings(
-                host=parsed.hostname or 'localhost',
-                port=parsed.port or 6379,
-                database=int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
-            )
-            pool = await create_pool(redis_settings)
-            store_factory.GLOBAL_ARQ_POOL = pool
+            try:
+                parsed = urllib.parse.urlparse(settings.redis_url)
+                redis_settings = RedisSettings(
+                    host=parsed.hostname or 'localhost',
+                    port=parsed.port or 6379,
+                    database=int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
+                )
+                pool = await create_pool(redis_settings)
+                store_factory.GLOBAL_ARQ_POOL = pool
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Redis not available (%s), background jobs will use inline mode.", e)
         
         yield
         

@@ -507,6 +507,10 @@ class AgentOrchestrator:
                 "- Use the 'escalate_to_human' tool immediately if the user is angry, "
                 "asks for a human, or asks something outside your knowledge."
             ),
+            (
+                "- CITATIONS: When answering based on the Knowledge Base, ALWAYS "
+                "append the source number in brackets, e.g. [1]."
+            ) if channel not in ["voice", "sip", "asterisk"] else "",
             "",
             "SAFETY POLICY:",
             AGENT_POLICY_RU,
@@ -563,8 +567,8 @@ class AgentOrchestrator:
 
         if retrieval_results:
             context_lines = [
-                f"- {getattr(result, 'title', 'Unknown')}: {getattr(result, 'excerpt', '')}"
-                for result in retrieval_results
+                f"[{i+1}] {getattr(result, 'title', 'Unknown')}: {getattr(result, 'excerpt', '')}"
+                for i, result in enumerate(retrieval_results)
             ]
             parts.append("KNOWLEDGE BASE CONTENT:\n" + "\n".join(context_lines))
         else:

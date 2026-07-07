@@ -430,6 +430,13 @@ class QAEvaluation(TimestampedModel):
     feedback: str = ""
 
 
+class QAEvaluationRequest(BaseModel):
+    conversation_id: UUID
+    score: int = Field(ge=0, le=10)
+    flags: list[str] = Field(default_factory=list)
+    feedback: str = ""
+
+
 class WeeklyReport(TimestampedModel):
     id: UUID = Field(default_factory=uuid4)
     tenant_id: UUID
@@ -438,6 +445,14 @@ class WeeklyReport(TimestampedModel):
     summary: str
     insights: str
     top_channels: list[str] = Field(default_factory=list)
+
+
+class MarginDashboardResponse(BaseModel):
+    total_revenue_minor: int
+    total_costs_minor: int
+    margin_minor: int
+    currency: str = "RUB"
+    margin_percentage: float
 
 
 class Message(TimestampedModel):

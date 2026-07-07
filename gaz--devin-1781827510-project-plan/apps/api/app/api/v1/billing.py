@@ -114,7 +114,7 @@ async def create_checkout(
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
-    if settings.yookassa_shop_id and settings.yookassa_secret_key:
+    if not settings.billing_test_mode and settings.yookassa_shop_id and settings.yookassa_secret_key:
         from yookassa import Configuration, Payment
 
         Configuration.account_id = settings.yookassa_shop_id

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import { ChatWidgetGate } from "./components/ChatWidgetGate";
-import "./globals.css";
+// import "./globals.css";
 
 const inter = Inter({
   subsets: ["latin", "cyrillic"],
@@ -51,6 +51,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru" className={`dark scroll-smooth ${inter.variable}`}>
+      <head>
+        <link rel="stylesheet" href="/tailwind.css" />
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased relative overflow-x-hidden">
         {children}
         <ChatWidgetGate />

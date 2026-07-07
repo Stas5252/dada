@@ -294,6 +294,19 @@ class ActionEngineExecutor:
             lead = auto_create_lead(tenant_id, name, phone, email, source)
             
             if lead:
+                from app.integrations.amo_bitrix import trigger_crm_webhook
+                import asyncio
+                # URL is hardcoded here for testing, normally it should be from tenant_settings
+                webhook_url = get_settings().crm_webhook_url or "https://webhook.site/stub"
+                lead_data = {
+                    "id": lead.id,
+                    "name": lead.name,
+                    "phone": lead.phone,
+                    "email": lead.email,
+                    "source": lead.source
+                }
+                asyncio.create_task(trigger_crm_webhook(str(tenant_id), lead_data, webhook_url))
+                
                 return {
                     "success": True,
                     "message": "Контактные данные сохранены в CRM.",

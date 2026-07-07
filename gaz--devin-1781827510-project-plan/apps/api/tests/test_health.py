@@ -28,7 +28,7 @@ def test_readiness_reports_local_stubs(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "mock_only"
     assert payload["store_backend"] == "memory"
     assert {provider["provider"] for provider in payload["providers"]} == {
         "llm",

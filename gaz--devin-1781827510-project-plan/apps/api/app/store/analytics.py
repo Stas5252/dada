@@ -23,12 +23,14 @@ from app.db_models import (
     ApiKeyModel,
     AuditLogModel,
     AuthSessionModel,
+    BillingLedgerEntryModel,
     CampaignModel,
     CampaignLeadModel,
     ContactConsentModel,
     ContactSuppressionModel,
     ConversationModel,
     ConversationTagModel,
+    CrmDealModel,
     CustomerModel,
     HandoffAssignmentModel,
     InternalNoteModel,
@@ -456,6 +458,19 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
                 d_str = d.strftime("%Y-%m-%d")
                 conversations_by_day.append({"date": d_str, "count": day_counts[d_str]})
             
+            # Revenue
+            pipeline_value = session.scalar(
+                select(func.sum(CrmDealModel.amount_minor))
+                .where(CrmDealModel.tenant_id == str(tenant_id))
+                .where(CrmDealModel.status.in_(["open", "negotiation", "won"]))
+            ) or 0
+            
+            lost_revenue = session.scalar(
+                select(func.sum(CrmDealModel.amount_minor))
+                .where(CrmDealModel.tenant_id == str(tenant_id))
+                .where(CrmDealModel.status == "lost")
+            ) or 0
+            
             return {
                 "total_conversations": total_conversations,
                 "resolved": resolved,
@@ -467,9 +482,39 @@ class AnalyticsStoreMixin(BaseSqlAlchemyStore):
                 "total_knowledge_sources": total_knowledge_sources,
                 "total_messages": total_messages,
                 "avg_messages_per_conversation": avg_messages_per_conversation,
+                "total_pipeline_value": float(pipeline_value) / 100.0,
+                "estimated_lost_revenue": float(lost_revenue) / 100.0,
                 "conversations_by_channel": conversations_by_channel,
                 "conversations_by_day": conversations_by_day,
                 "top_unresolved": [] # placeholder for now
+            }
+
+    def get_margin_dashboard(self, tenant_id: UUID) -> dict[str, Any]:
+        """Fetch margin dashboard stats (Revenue vs Costs)."""
+        with self.session_factory() as session:
+            # Revenue = Sum of all won deals
+            revenue = session.scalar(
+                select(func.sum(CrmDealModel.amount_minor))
+                .where(CrmDealModel.tenant_id == str(tenant_id))
+                .where(CrmDealModel.status == "won")
+            ) or 0
+
+            # Costs = Sum of all billing ledger entries (where type is usage and amount is positive)
+            costs = session.scalar(
+                select(func.sum(BillingLedgerEntryModel.amount_minor))
+                .where(BillingLedgerEntryModel.tenant_id == str(tenant_id))
+                .where(BillingLedgerEntryModel.amount_minor > 0)
+            ) or 0
+
+            margin = revenue - costs
+            margin_percentage = (margin / revenue * 100) if revenue > 0 else 0.0
+
+            return {
+                "total_revenue_minor": revenue,
+                "total_costs_minor": costs,
+                "margin_minor": margin,
+                "margin_percentage": margin_percentage,
+                "currency": "RUB"
             }
 
     def save_qa_evaluation(self, evaluation: QAEvaluation) -> None:

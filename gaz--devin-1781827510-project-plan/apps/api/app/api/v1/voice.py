@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -36,7 +37,8 @@ from app.contracts.voice import (
 from app.limiter import limiter
 from app.orchestrator import AgentOrchestrator
 from app.rbac import Permission
-from app.service_factory import get_voice_service
+from app.service_factory import get_voice_service, get_billing_service
+from app.billing_service import BillingService
 from app.settings import Settings, get_settings
 from app.speech_service import (
     SpeechService,
@@ -718,9 +720,11 @@ async def twilio_media_stream_websocket(
     service: VoiceSessionService = Depends(get_voice_service),
     streaming_stt: StreamingSTT = Depends(get_streaming_stt),
     streaming_tts: StreamingTTS = Depends(get_streaming_tts),
+    billing_service: BillingService = Depends(get_billing_service),
 ) -> None:
     """Real-time Twilio Media Stream WebSocket connection with Full-duplex and Barge-in."""
     await websocket.accept()
+    session_start_time = datetime.now(UTC)
     if not tenant_id:
         tenant_id = settings.demo_tenant_id
 
@@ -868,3 +872,17 @@ async def twilio_media_stream_websocket(
             tts_task.cancel()
         if stt_receive_task and not stt_receive_task.done():
             stt_receive_task.cancel()
+            
+        duration_seconds = (datetime.now(UTC) - session_start_time).total_seconds()
+        minutes = int(duration_seconds / 60) + 1
+        cost_minor = minutes * 1000
+        try:
+            await billing_service.apply_usage_charge(
+                tenant_id=tenant_id,
+                subject_id=session_id,
+                amount_minor=cost_minor,
+                currency="RUB",
+                payload={"type": "voice_call_minutes", "duration_seconds": duration_seconds, "minutes_billed": minutes}
+            )
+        except Exception as e:
+            logger.error("Failed to apply usage charge for voice session %s: %s", session_id, e)

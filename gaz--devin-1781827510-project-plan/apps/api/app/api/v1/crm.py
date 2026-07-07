@@ -3,11 +3,12 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict
 
 from app.api.v1.dependencies import require_tenant_permission
 from app.database import session_scope
-from app.db_models import CrmDealModel, CrmLeadModel
+from app.db_models import CrmDealModel, CrmLeadModel, CrmTaskModel
 from app.rbac import Permission
 from app.settings import get_settings
 
@@ -47,6 +48,10 @@ class DealCreateRequest(BaseModel):
     status: str = "open"
 
 
+class DealStatusUpdate(BaseModel):
+    status: str
+
+
 class DealResponse(BaseModel):
     id: str
     tenant_id: str
@@ -57,6 +62,20 @@ class DealResponse(BaseModel):
     status: str
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class TaskResponse(BaseModel):
+    id: str
+    tenant_id: str
+    title: str
+    status: str
+    due_date: str | None = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TaskStatusUpdate(BaseModel):
+    status: str
 
 
 def get_db_session_factory():
@@ -155,3 +174,84 @@ def create_deal(
         session.flush()
         session.refresh(deal)
         return DealResponse.model_validate(deal)
+
+
+@router.get("/deals", response_model=list[DealResponse])
+def list_deals(
+    tenant_id: str = Depends(READ_CRM),
+) -> list[DealResponse]:
+    factory = get_db_session_factory()
+    with session_scope(factory) as session:
+        deals = session.query(CrmDealModel).filter(CrmDealModel.tenant_id == tenant_id).order_by(CrmDealModel.created_at.desc()).all()
+        return [DealResponse.model_validate(d) for d in deals]
+
+
+@router.patch("/deals/{deal_id}/status", response_model=DealResponse)
+def update_deal_status(
+    deal_id: str,
+    payload: DealStatusUpdate,
+    tenant_id: str = Depends(MANAGE_CRM),
+) -> DealResponse:
+    factory = get_db_session_factory()
+    with session_scope(factory) as session:
+        deal = session.query(CrmDealModel).filter(CrmDealModel.tenant_id == tenant_id, CrmDealModel.id == deal_id).first()
+        if not deal:
+            raise HTTPException(status_code=404, detail="Deal not found")
+        deal.status = payload.status
+        session.flush()
+        session.refresh(deal)
+        return DealResponse.model_validate(deal)
+
+
+@router.get("/tasks", response_model=list[TaskResponse])
+def list_tasks(
+    tenant_id: str = Depends(READ_CRM),
+) -> list[TaskResponse]:
+    factory = get_db_session_factory()
+    with session_scope(factory) as session:
+        tasks = session.query(CrmTaskModel).filter(CrmTaskModel.tenant_id == tenant_id).order_by(CrmTaskModel.created_at.desc()).all()
+        return [TaskResponse.model_validate(t) for t in tasks]
+
+
+@router.patch("/tasks/{task_id}/status", response_model=TaskResponse)
+def update_task_status(
+    task_id: str,
+    payload: TaskStatusUpdate,
+    tenant_id: str = Depends(MANAGE_CRM),
+) -> TaskResponse:
+    factory = get_db_session_factory()
+    with session_scope(factory) as session:
+        task = session.query(CrmTaskModel).filter(CrmTaskModel.tenant_id == tenant_id, CrmTaskModel.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        task.status = payload.status
+        session.flush()
+        session.refresh(task)
+        return TaskResponse.model_validate(task)
+
+
+@router.get("/leads/export", response_class=PlainTextResponse)
+def export_leads_csv(
+    tenant_id: str = Depends(READ_CRM),
+) -> str:
+    import io
+    import csv
+    factory = get_db_session_factory()
+    with session_scope(factory) as session:
+        leads = session.query(CrmLeadModel).filter(CrmLeadModel.tenant_id == tenant_id).order_by(CrmLeadModel.created_at.desc()).all()
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "Name", "Phone", "Email", "Source", "Status", "Created At"])
+        for lead in leads:
+            writer.writerow([
+                lead.id,
+                lead.name,
+                lead.phone or "",
+                lead.email or "",
+                lead.source or "",
+                lead.status or "",
+                lead.created_at.isoformat() if lead.created_at else "",
+            ])
+        
+        return output.getvalue()

@@ -100,9 +100,12 @@ class InMemoryStore:
         if settings.app_env == "test" or "pytest" in sys.modules:
             self.background_jobs = InlineBackgroundJobBackend()
         else:
-            from app.jobs import ArqBackgroundJobBackend
-            from app.store_factory import GLOBAL_ARQ_POOL
-            self.background_jobs = ArqBackgroundJobBackend(redis_pool=GLOBAL_ARQ_POOL)
+            try:
+                from app.jobs import ArqBackgroundJobBackend
+                from app.store_factory import GLOBAL_ARQ_POOL
+                self.background_jobs = ArqBackgroundJobBackend(redis_pool=GLOBAL_ARQ_POOL)
+            except ImportError:
+                self.background_jobs = InlineBackgroundJobBackend()
 
 
     def register(

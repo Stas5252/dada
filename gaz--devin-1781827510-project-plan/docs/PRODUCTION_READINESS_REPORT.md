@@ -13,11 +13,11 @@ Backend:
 | Command | Result |
 | --- | --- |
 | `python -m ruff check app tests` | Passed |
-| `python -m mypy app --show-error-codes` | Passed, 81 source files |
-| `python -m pytest` | Passed, 138/138 |
+| `python -m mypy app --show-error-codes` | Passed, 82 source files |
+| `python -m pytest` | Passed, 141/141 |
 | `python -m bandit -q -r app` | Passed |
 | `python -m safety check --full-report` | Passed, 0 vulnerabilities |
-| `python -m alembic heads` | Passed, one head `6b7c8d9e0f12` |
+| `python -m alembic heads` | Passed, one head `7d9e0f12a345` |
 
 Frontend/workspace:
 
@@ -35,7 +35,7 @@ Browser/runtime:
 | --- | --- |
 | API `/api/v1/health` | HTTP 200 |
 | Web `/` on port 3000 | HTTP 200 |
-| `npx playwright test --reporter=list` | Passed, 11/11 |
+| `npx playwright test --config apps/web/playwright.config.ts --reporter=list` | Passed, 11/11 |
 
 Not run:
 
@@ -48,6 +48,7 @@ Not run:
 - Next.js web process.
 - Auth/register/login/refresh/logout/MFA foundations.
 - Agent CRUD and publish API with Testbed gate for missing, failed, running and stale scenario runs, plus pass-rate readiness summaries.
+- Agent profile/tool registry foundation: role, tone, language, business profile, business hours, escalation rules, sales rules, forbidden topics and enabled tools are persisted and used by the orchestrator; order/cart tools are no longer hardcoded into every agent prompt.
 - Knowledge source APIs, parser coverage and tenant-scoped RAG eval API/UI checks for citations, expected terms and no-answer behavior.
 - Conversations and widget/test console flows.
 - Runtime guardrail enforcement for opt-out, human handoff intent, regulated topics, unsafe outbound claims and unsafe tool calls.

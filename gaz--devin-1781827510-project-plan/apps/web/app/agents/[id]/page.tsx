@@ -144,6 +144,7 @@ export default async function AgentEditPage({ params, searchParams }: AgentEditP
   const notice = resolvedSearchParams?.notice;
   const agent = agentResult.data;
   const testbedReadiness = testbedReadinessResult.data;
+  const enabledTools = new Set(agent?.enabledTools ?? ["escalate_to_human"]);
 
   return (
     <DashboardShell
@@ -214,6 +215,121 @@ export default async function AgentEditPage({ params, searchParams }: AgentEditP
                       <option value="sip">SIP voice</option>
                     </select>
                   </label>
+                </div>
+
+                <div className="space-y-5 border-t border-white/5 pt-5">
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-zinc-300">Role</span>
+                      <select
+                        className="w-full rounded-lg border border-white/10 bg-black px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-emerald-500"
+                        defaultValue={agent.agentRole}
+                        name="agent_role"
+                      >
+                        <option value="customer_support">Support</option>
+                        <option value="sales_consultant">Sales consultant</option>
+                        <option value="receptionist">Receptionist</option>
+                        <option value="qa_supervisor">QA supervisor</option>
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-zinc-300">Tone</span>
+                      <select
+                        className="w-full rounded-lg border border-white/10 bg-black px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-emerald-500"
+                        defaultValue={agent.agentTone}
+                        name="agent_tone"
+                      >
+                        <option value="professional">Professional</option>
+                        <option value="friendly">Friendly</option>
+                        <option value="concise">Concise</option>
+                        <option value="premium">Premium</option>
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-zinc-300">Language</span>
+                      <select
+                        className="w-full rounded-lg border border-white/10 bg-black px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-emerald-500"
+                        defaultValue={agent.agentLanguage}
+                        name="agent_language"
+                      >
+                        <option value="ru">RU</option>
+                        <option value="en">EN</option>
+                        <option value="mixed_ru_en">RU + EN</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium text-zinc-300">Business profile</span>
+                    <textarea
+                      className="min-h-28 w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
+                      name="business_profile"
+                      defaultValue={agent.businessProfile}
+                    />
+                  </label>
+
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-zinc-300">Business hours</span>
+                      <textarea
+                        className="min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
+                        name="business_hours"
+                        defaultValue={agent.businessHours}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-zinc-300">Escalation rules</span>
+                      <textarea
+                        className="min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
+                        name="escalation_rules"
+                        defaultValue={agent.escalationRules}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium text-zinc-300">Sales rules</span>
+                      <textarea
+                        className="min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
+                        name="sales_rules"
+                        defaultValue={agent.salesRules}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium text-zinc-300">Forbidden topics</span>
+                    <textarea
+                      className="min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black px-4 py-3 text-sm leading-6 text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
+                      name="forbidden_topics"
+                      defaultValue={agent.forbiddenTopics.join("\n")}
+                    />
+                  </label>
+
+                  <div className="space-y-3">
+                    <input name="enabled_tools" type="hidden" value="escalate_to_human" />
+                    <h3 className="text-sm font-semibold text-white">Enabled tools</h3>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        ["add_to_cart", "Add order item"],
+                        ["remove_from_cart", "Remove order item"],
+                        ["checkout_cart", "Collect checkout details"],
+                        ["confirm_order", "Confirm order"],
+                      ].map(([value, label]) => (
+                        <label
+                          key={value}
+                          className="flex min-h-11 items-center gap-3 rounded-lg border border-white/10 bg-black px-3 py-2 text-sm text-zinc-300"
+                        >
+                          <input
+                            className="h-4 w-4 rounded border-white/20 bg-black text-emerald-500 focus:ring-emerald-500/40"
+                            defaultChecked={enabledTools.has(value)}
+                            name="enabled_tools"
+                            type="checkbox"
+                            value={value}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid gap-5 sm:grid-cols-3 border-t border-white/5 pt-5">

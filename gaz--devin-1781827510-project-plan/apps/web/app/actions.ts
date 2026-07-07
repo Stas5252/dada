@@ -42,6 +42,13 @@ function textAreaLines(formData: FormData, key: string) {
     .filter(Boolean);
 }
 
+function multiTextValues(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+}
+
 function optionalNumberValue(formData: FormData, key: string, fallback: number) {
   const value = Number.parseFloat(textValue(formData, key));
   return Number.isFinite(value) ? value : fallback;
@@ -105,6 +112,15 @@ export async function createAgentAction(formData: FormData) {
   const temperature = parseFloat(textValue(formData, "temperature") || "0.3");
   const max_tokens = parseInt(textValue(formData, "max_tokens") || "1024", 10);
   const model_name = textValue(formData, "model_name") || "gpt-4o-mini";
+  const business_profile = textValue(formData, "business_profile");
+  const agent_role = textValue(formData, "agent_role") || "customer_support";
+  const agent_tone = textValue(formData, "agent_tone") || "professional";
+  const agent_language = textValue(formData, "agent_language") || "ru";
+  const business_hours = textValue(formData, "business_hours");
+  const escalation_rules = textValue(formData, "escalation_rules");
+  const sales_rules = textValue(formData, "sales_rules");
+  const forbidden_topics = textAreaLines(formData, "forbidden_topics");
+  const enabled_tools = multiTextValues(formData, "enabled_tools");
 
   if (!name || prompt.length < 10) {
     redirect(noticePath("/agents/new", "agent-invalid"));
@@ -120,6 +136,15 @@ export async function createAgentAction(formData: FormData) {
     temperature,
     max_tokens,
     model_name,
+    business_profile,
+    agent_role,
+    agent_tone,
+    agent_language,
+    business_hours,
+    escalation_rules,
+    sales_rules,
+    forbidden_topics,
+    enabled_tools,
   });
 
   if (result.state === "live") {
@@ -140,6 +165,15 @@ export async function updateAgentAction(formData: FormData) {
   const temperature = parseFloat(textValue(formData, "temperature") || "0.3");
   const max_tokens = parseInt(textValue(formData, "max_tokens") || "1024", 10);
   const model_name = textValue(formData, "model_name") || "gpt-4o-mini";
+  const business_profile = textValue(formData, "business_profile");
+  const agent_role = textValue(formData, "agent_role") || "customer_support";
+  const agent_tone = textValue(formData, "agent_tone") || "professional";
+  const agent_language = textValue(formData, "agent_language") || "ru";
+  const business_hours = textValue(formData, "business_hours");
+  const escalation_rules = textValue(formData, "escalation_rules");
+  const sales_rules = textValue(formData, "sales_rules");
+  const forbidden_topics = textAreaLines(formData, "forbidden_topics");
+  const enabled_tools = multiTextValues(formData, "enabled_tools");
   const returnTo = safeAgentReturnPath(textValue(formData, "return_to") || `/agents/${agentId}`);
 
   if (!agentId || !name || prompt.length < 10) {
@@ -156,6 +190,15 @@ export async function updateAgentAction(formData: FormData) {
     temperature,
     max_tokens,
     model_name,
+    business_profile,
+    agent_role,
+    agent_tone,
+    agent_language,
+    business_hours,
+    escalation_rules,
+    sales_rules,
+    forbidden_topics,
+    enabled_tools,
   });
 
   if (result.state === "live") {

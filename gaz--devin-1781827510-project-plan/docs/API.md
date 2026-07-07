@@ -75,6 +75,15 @@ Channel webhook diagnostics contract:
 - Testbed routes in `api/v1/testbed.py`.
 - `GET /agents/{agent_id}/testbed/readiness` returns publish readiness, required pass rate, pass/fail/running/stale/missing counts, latest run summaries and blocking failures.
 
+Agent profile contract:
+
+- Create/update accepts `business_profile`, `agent_role`, `agent_tone`, `agent_language`, `business_hours`, `escalation_rules`, `sales_rules`, `forbidden_topics` and `enabled_tools`.
+- `forbidden_topics` can be posted as a string list, newline text or comma-separated text; API stores a normalized unique list.
+- `enabled_tools` is normalized against the backend tool registry and always includes `escalate_to_human`.
+- Current native tools: `escalate_to_human`, `add_to_cart`, `remove_from_cart`, `checkout_cart`, `confirm_order`.
+- Order/cart context and order-specific prompt rules are included only when order tools are enabled for that agent.
+- Profile, prompt, channel and enabled-tool changes return a published agent to `draft` so Testbed can re-approve the new runtime behavior.
+
 Publish contract:
 
 - `POST /agents/{agent_id}/publish` returns `409 TESTBED_PUBLISH_GATE_FAILED` when the agent has no Testbed cases, a case has no run, the latest run is `running`/`failed`, or the latest passed run is stale after an agent/scenario update.

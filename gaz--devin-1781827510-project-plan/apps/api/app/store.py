@@ -387,6 +387,15 @@ class InMemoryStore:
             model_name=payload.model_name,
             pathway_nodes=payload.pathway_nodes,
             pathway_edges=payload.pathway_edges,
+            business_profile=payload.business_profile,
+            agent_role=payload.agent_role,
+            agent_tone=payload.agent_tone,
+            agent_language=payload.agent_language,
+            business_hours=payload.business_hours,
+            escalation_rules=payload.escalation_rules,
+            sales_rules=payload.sales_rules,
+            forbidden_topics=payload.forbidden_topics,
+            enabled_tools=payload.enabled_tools,
         )
         self.agents[agent.id] = agent
         return agent
@@ -439,6 +448,42 @@ class InMemoryStore:
             updates["pathway_nodes"] = payload.pathway_nodes
         if payload.pathway_edges is not None and payload.pathway_edges != agent.pathway_edges:
             updates["pathway_edges"] = payload.pathway_edges
+        if (
+            payload.business_profile is not None
+            and payload.business_profile != agent.business_profile
+        ):
+            updates["business_profile"] = payload.business_profile
+            requires_republish = True
+        if payload.agent_role is not None and payload.agent_role != agent.agent_role:
+            updates["agent_role"] = payload.agent_role
+            requires_republish = True
+        if payload.agent_tone is not None and payload.agent_tone != agent.agent_tone:
+            updates["agent_tone"] = payload.agent_tone
+            requires_republish = True
+        if payload.agent_language is not None and payload.agent_language != agent.agent_language:
+            updates["agent_language"] = payload.agent_language
+            requires_republish = True
+        if payload.business_hours is not None and payload.business_hours != agent.business_hours:
+            updates["business_hours"] = payload.business_hours
+            requires_republish = True
+        if (
+            payload.escalation_rules is not None
+            and payload.escalation_rules != agent.escalation_rules
+        ):
+            updates["escalation_rules"] = payload.escalation_rules
+            requires_republish = True
+        if payload.sales_rules is not None and payload.sales_rules != agent.sales_rules:
+            updates["sales_rules"] = payload.sales_rules
+            requires_republish = True
+        if (
+            payload.forbidden_topics is not None
+            and payload.forbidden_topics != agent.forbidden_topics
+        ):
+            updates["forbidden_topics"] = payload.forbidden_topics
+            requires_republish = True
+        if payload.enabled_tools is not None and payload.enabled_tools != agent.enabled_tools:
+            updates["enabled_tools"] = payload.enabled_tools
+            requires_republish = True
 
         if updates:
             updates["version"] = agent.version + 1

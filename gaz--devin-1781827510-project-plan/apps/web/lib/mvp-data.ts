@@ -70,6 +70,15 @@ export type Agent = {
   temperature: number;
   maxTokens: number;
   modelName: string;
+  businessProfile: string;
+  agentRole: string;
+  agentTone: string;
+  agentLanguage: string;
+  businessHours: string;
+  escalationRules: string;
+  salesRules: string;
+  forbiddenTopics: string[];
+  enabledTools: string[];
 };
 
 export type KnowledgeSource = {
@@ -242,6 +251,21 @@ const agents: Agent[] = [
     temperature: 0.3,
     maxTokens: 1024,
     modelName: "gpt-4o-mini",
+    businessProfile: "Demo restaurant delivery support with FAQ, menu, order status and operator handoff.",
+    agentRole: "customer_support",
+    agentTone: "friendly",
+    agentLanguage: "ru",
+    businessHours: "Daily 10:00-23:00",
+    escalationRules: "Escalate complaints, refunds and unavailable menu items.",
+    salesRules: "Use only confirmed menu and pricing from the knowledge base.",
+    forbiddenTopics: ["legal guarantees", "unconfirmed discounts"],
+    enabledTools: [
+      "escalate_to_human",
+      "add_to_cart",
+      "remove_from_cart",
+      "checkout_cart",
+      "confirm_order",
+    ],
   },
   {
     id: "agent-voice-frontdesk",
@@ -258,6 +282,15 @@ const agents: Agent[] = [
     temperature: 0.3,
     maxTokens: 1024,
     modelName: "gpt-4o-mini",
+    businessProfile: "Voice front desk for inbound calls and first-line qualification.",
+    agentRole: "receptionist",
+    agentTone: "professional",
+    agentLanguage: "ru",
+    businessHours: "Mon-Fri 09:00-18:00",
+    escalationRules: "Escalate complex, angry or regulated requests.",
+    salesRules: "Qualify need, timing and contact details before handoff.",
+    forbiddenTopics: ["legal guarantees"],
+    enabledTools: ["escalate_to_human"],
   },
 ];
 
@@ -567,6 +600,15 @@ function mapAgent(agent: CoreAgent): Agent {
     temperature: agent.temperature || 0.3,
     maxTokens: agent.max_tokens || 1024,
     modelName: agent.model_name || "gpt-4o-mini",
+    businessProfile: agent.business_profile || "",
+    agentRole: agent.agent_role || "customer_support",
+    agentTone: agent.agent_tone || "professional",
+    agentLanguage: agent.agent_language || "ru",
+    businessHours: agent.business_hours || "",
+    escalationRules: agent.escalation_rules || "",
+    salesRules: agent.sales_rules || "",
+    forbiddenTopics: agent.forbidden_topics || [],
+    enabledTools: agent.enabled_tools || ["escalate_to_human"],
   };
 }
 

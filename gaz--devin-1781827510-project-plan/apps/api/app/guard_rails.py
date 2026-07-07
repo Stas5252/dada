@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from app.schemas import ConversationStatus, GuardrailPolicySettings
+from app.tool_registry import REGISTERED_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -130,13 +131,7 @@ class RuntimeGuardRails:
         re.compile(r"\b(ok|okay|yes|confirm|confirmed)\b", re.IGNORECASE),
     ]
 
-    ALLOWED_TOOL_NAMES = {
-        "add_to_cart",
-        "checkout_cart",
-        "confirm_order",
-        "escalate_to_human",
-        "remove_from_cart",
-    }
+    ALLOWED_TOOL_NAMES = REGISTERED_TOOL_NAMES
 
     @classmethod
     def evaluate_inbound_message(

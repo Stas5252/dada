@@ -84,3 +84,13 @@ This document breaks down the implementation of the CallForce master plan into s
 - [ ] Implement cross-channel Memory: facts, summaries, open items, recent messages.
 - [ ] Implement real SIP/STT/TTS voice path with measured latency.
 - [ ] Acceptance: parity report `19-bland-parity-gap-and-next-steps-2026-06-21.md` has all critical gaps closed and verified by automated/browser/staging checks.
+
+## 13. PDF audit P0 production closure (2026-07-07)
+- [x] P0-2 foundation: add persisted agent profile fields and per-agent enabled tool registry.
+- [x] P0-2 foundation: build orchestrator system prompt and OpenAI function list from agent config, not a global restaurant/cart prompt.
+- [x] P0-2 foundation: expose profile/tool configuration in agent create/edit UI and API docs.
+- [ ] P0-2 remaining: split order tools into a formal vertical plugin and add templates for salon, autoservice, clinic, school, restaurant, delivery, B2B and ecommerce.
+- [ ] P0-3: add CRM models, lead/deal capture tools, CSV/webhook/API export, amoCRM and Bitrix24 proof.
+- [ ] P0-1: implement real streaming voice with duplex audio, partial STT, streaming TTS, barge-in and measured latency.
+- [ ] P0-4: replace local deterministic RAG eval path with persistent production Qdrant plus real embeddings/reranker and CI golden-set history.
+- [ ] P0-5/P0-6: add durable workers/scheduler and outbound campaigns with DNC/consent/reporting.

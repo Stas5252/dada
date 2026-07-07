@@ -147,6 +147,15 @@ export type CoreAgent = {
   temperature: number;
   max_tokens: number;
   model_name: string;
+  business_profile: string;
+  agent_role: string;
+  agent_tone: string;
+  agent_language: string;
+  business_hours: string;
+  escalation_rules: string;
+  sales_rules: string;
+  forbidden_topics: string[];
+  enabled_tools: string[];
 }
 
 export type CoreTestbedReadinessStatus = "ready" | "action_required";

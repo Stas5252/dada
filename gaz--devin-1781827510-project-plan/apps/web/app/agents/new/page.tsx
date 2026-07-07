@@ -66,6 +66,126 @@ export default async function NewAgentPage({ searchParams }: NewAgentPageProps) 
             </div>
 
             <div className="sm:col-span-2 space-y-4 border-t border-white/5 pt-4">
+              <h3 className="text-sm font-semibold text-white">Agent profile</h3>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-zinc-400">Role</label>
+                  <select
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
+                    defaultValue="customer_support"
+                    name="agent_role"
+                  >
+                    <option value="customer_support">Support</option>
+                    <option value="sales_consultant">Sales consultant</option>
+                    <option value="receptionist">Receptionist</option>
+                    <option value="qa_supervisor">QA supervisor</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-zinc-400">Tone</label>
+                  <select
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
+                    defaultValue="professional"
+                    name="agent_tone"
+                  >
+                    <option value="professional">Professional</option>
+                    <option value="friendly">Friendly</option>
+                    <option value="concise">Concise</option>
+                    <option value="premium">Premium</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-zinc-400">Language</label>
+                  <select
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner"
+                    defaultValue="ru"
+                    name="agent_language"
+                  >
+                    <option value="ru">RU</option>
+                    <option value="en">EN</option>
+                    <option value="mixed_ru_en">RU + EN</option>
+                  </select>
+                </div>
+              </div>
+
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-zinc-400">Business profile</span>
+                <textarea
+                  className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
+                  name="business_profile"
+                  placeholder="Company, offer, audience, geography, pricing rules, service limits."
+                  rows={4}
+                />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="space-y-2">
+                  <span className="text-xs font-medium text-zinc-400">Business hours</span>
+                  <textarea
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
+                    name="business_hours"
+                    placeholder="Mon-Fri 09:00-18:00, Samara time."
+                    rows={3}
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-medium text-zinc-400">Escalation rules</span>
+                  <textarea
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
+                    name="escalation_rules"
+                    placeholder="Escalate refunds, legal questions, VIP clients."
+                    rows={3}
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-medium text-zinc-400">Sales rules</span>
+                  <textarea
+                    className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
+                    name="sales_rules"
+                    placeholder="Qualify need, budget, timing; never promise discounts."
+                    rows={3}
+                  />
+                </label>
+              </div>
+
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-zinc-400">Forbidden topics</span>
+                <textarea
+                  className="w-full bg-black/40 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-inner resize-y"
+                  name="forbidden_topics"
+                  placeholder="One topic per line."
+                  rows={3}
+                />
+              </label>
+            </div>
+
+            <div className="sm:col-span-2 space-y-3 border-t border-white/5 pt-4">
+              <input name="enabled_tools" type="hidden" value="escalate_to_human" />
+              <h3 className="text-sm font-semibold text-white">Enabled tools</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  ["add_to_cart", "Add order item"],
+                  ["remove_from_cart", "Remove order item"],
+                  ["checkout_cart", "Collect checkout details"],
+                  ["confirm_order", "Confirm order"],
+                ].map(([value, label]) => (
+                  <label
+                    key={value}
+                    className="flex min-h-11 items-center gap-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-300"
+                  >
+                    <input
+                      className="h-4 w-4 rounded border-white/20 bg-black text-primary focus:ring-primary/40"
+                      name="enabled_tools"
+                      type="checkbox"
+                      value={value}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="sm:col-span-2 space-y-4 border-t border-white/5 pt-4">
               <h3 className="text-sm font-semibold text-white">Настройки голоса (для SIP и голосового стриминга)</h3>
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-2">

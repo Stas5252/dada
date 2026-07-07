@@ -44,8 +44,26 @@ def test_sqlalchemy_store_core_mvp_flow(sqlite_engine) -> None:
             name="SQL Agent",
             prompt="Answer only from knowledge base and escalate otherwise.",
             channel="web_widget",
+            business_profile="B2B support desk for account questions.",
+            agent_role="customer_support",
+            agent_tone="concise",
+            agent_language="en",
+            business_hours="Mon-Fri 09:00-18:00",
+            escalation_rules="Escalate billing disputes.",
+            sales_rules="Do not promise custom discounts.",
+            forbidden_topics=["legal advice"],
+            enabled_tools=["escalate_to_human"],
         ),
     )
+    assert agent.business_profile == "B2B support desk for account questions."
+    assert agent.agent_role == "customer_support"
+    assert agent.agent_tone == "concise"
+    assert agent.agent_language == "en"
+    assert agent.business_hours == "Mon-Fri 09:00-18:00"
+    assert agent.escalation_rules == "Escalate billing disputes."
+    assert agent.sales_rules == "Do not promise custom discounts."
+    assert agent.forbidden_topics == ["legal advice"]
+    assert agent.enabled_tools == ["escalate_to_human"]
     published_agent = repository.publish_agent(tenant.id, agent.id)
     assert published_agent is not None
     assert published_agent.status == "published"
@@ -57,12 +75,28 @@ def test_sqlalchemy_store_core_mvp_flow(sqlite_engine) -> None:
             name="SQL Agent v2",
             prompt="Answer from approved SQL knowledge and escalate unknown requests.",
             channel="telegram",
+            business_profile="Updated support desk profile.",
+            enabled_tools=[
+                "escalate_to_human",
+                "add_to_cart",
+                "remove_from_cart",
+                "checkout_cart",
+                "confirm_order",
+            ],
         ),
     )
     assert updated_agent is not None
     assert updated_agent.name == "SQL Agent v2"
     assert updated_agent.status == "draft"
     assert updated_agent.version == 2
+    assert updated_agent.business_profile == "Updated support desk profile."
+    assert updated_agent.enabled_tools == [
+        "escalate_to_human",
+        "add_to_cart",
+        "remove_from_cart",
+        "checkout_cart",
+        "confirm_order",
+    ]
 
     republished_agent = repository.publish_agent(tenant.id, agent.id)
     assert republished_agent is not None

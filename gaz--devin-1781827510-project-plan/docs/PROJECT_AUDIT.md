@@ -9,7 +9,7 @@ This audit follows the production-readiness objective from the attached brief: d
 - Monorepo structure: `apps/api`, `apps/web`, `packages/shared-types`, `packages/ui`, `infra`, `migrations`, `scripts`, `docs`.
 - Backend: FastAPI, Pydantic settings, SQLAlchemy store, in-memory fallback, JWT/refresh sessions, RBAC, MFA, audit logs, API keys, team settings, billing ledger, knowledge/RAG services, parsers, action engine, scenario engine, guard rails, LLM router, speech/voice services, Twilio/Asterisk/YooKassa/iiko/AmoCRM/channel adapters.
 - Frontend: Next.js app router, landing, auth, onboarding, dashboard, agents, pathway builder, knowledge, conversations, operator console, analytics, billing, settings, test console, widget, legal/status pages.
-- Data: Alembic migrations with current head `6b7c8d9e0f12`, SQLAlchemy models, demo seed.
+- Data: Alembic migrations with current head `7d9e0f12a345`, SQLAlchemy models, demo seed.
 - Infrastructure: local and production Docker Compose, Traefik, PostgreSQL, Redis, Qdrant, MinIO, Prometheus, Alertmanager, Grafana, postgres backup container.
 - QA: backend unit/contract/integration-style tests, Playwright browser smoke tests, lint/typecheck/build scripts, Bandit/Safety/npm audit checks.
 - CI/CD: GitHub workflows for CI, QA, security, staging and deploy.
@@ -20,8 +20,8 @@ This audit follows the production-readiness objective from the attached brief: d
 Latest verified checkpoint: 2026-07-07.
 
 - Backend lint: `python -m ruff check app tests` passed.
-- Backend typing: `python -m mypy app --show-error-codes` passed, 81 source files.
-- Backend tests: `python -m pytest` passed, 138/138 tests.
+- Backend typing: `python -m mypy app --show-error-codes` passed, 82 source files.
+- Backend tests: `python -m pytest` passed, 141/141 tests.
 - Backend security: `python -m bandit -q -r app` passed.
 - Python dependency scan: `python -m safety check --full-report` passed, 0 vulnerabilities.
 - Frontend lint: `npm run lint` passed.
@@ -29,15 +29,16 @@ Latest verified checkpoint: 2026-07-07.
 - Frontend build: `npm run build` passed, 35 Next.js routes.
 - JS workspace tests: `npm test` passed.
 - JS dependency scan: `npm audit --audit-level=moderate` passed, 0 vulnerabilities.
-- Browser smoke: `npx playwright test --reporter=list` passed, 11/11 tests.
+- Browser smoke: `npx playwright test --config apps/web/playwright.config.ts --reporter=list` passed, 11/11 tests.
 - Runtime smoke: API responds at `/api/v1/health`; web responds at `http://127.0.0.1:3000`.
-- Migration state: `alembic heads` reports one head, `6b7c8d9e0f12`.
+- Migration state: `alembic heads` reports one head, `7d9e0f12a345`.
 - Integration readiness: tenant-scoped API/UI checklist reports missing provider settings without exposing secret values.
 - Channel webhook diagnostics: tenant-scoped API/UI shows Telegram/VK/WhatsApp callback URLs, HTTPS status, missing settings and security warnings without exposing tokens/secrets.
 - RAG fallback: missing Qdrant collection now returns empty context with a single INFO log instead of repeated ERROR noise.
 - RAG eval: tenant-scoped golden-case API/UI checks expected source titles, expected answer terms, citation presence and no-answer behavior without requiring live Qdrant/OpenAI.
 - Billing limits: monthly message limits have one backend source of truth, billing status reports remaining/period/exceeded state, and over-limit AI turns are blocked with `402 BILLING_LIMIT_REACHED` plus audit log.
 - Testbed readiness: agent-level readiness API/UI reports `100%` required pass rate, latest run summaries, missing/stale/running/failed counts and publish-block details.
+- Agent profile/tool registry: agents persist business profile, role, tone, language, business hours, escalation rules, sales rules, forbidden topics and enabled tools; orchestrator builds prompts/tools from agent config instead of a hardcoded restaurant flow.
 
 ## What is broken or unverified
 
@@ -70,6 +71,7 @@ P1 gaps:
 - Larger RAG golden datasets, CI no-answer/citation thresholds and quality trend history.
 - Complete channel setup wizards for email/generic webhook and live-provider webhook smoke evidence for Telegram/VK/WhatsApp.
 - CRM pipeline and lead recovery workflows beyond adapters/contracts.
+- Vertical templates/plugins for salon, autoservice, clinic, school, restaurant, delivery, B2B and ecommerce beyond the new generic agent profile/tool registry foundation.
 - Load testing with realistic concurrency and call/chat traffic.
 
 P2 gaps:

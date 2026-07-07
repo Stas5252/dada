@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.rbac import Role
+from app.tool_registry import DEFAULT_ENABLED_TOOLS, normalize_enabled_tools
 
 
 class TenantStatus(StrEnum):
@@ -152,6 +153,29 @@ class ChannelWebhookDiagnosticsResponse(BaseModel):
     items: list[ChannelWebhookDiagnosticItem]
 
 
+def _coerce_string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items: Sequence[object] = value.replace(",", "\n").splitlines()
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raise ValueError("Value must be a list of strings.")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if not isinstance(item, str):
+            raise ValueError("Every item must be a string.")
+        normalized_item = " ".join(item.split())
+        if not normalized_item or normalized_item in seen:
+            continue
+        normalized.append(normalized_item)
+        seen.add(normalized_item)
+    return normalized
+
+
 class GuardrailPolicySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -270,6 +294,15 @@ class Agent(TimestampedModel):
     telegram_bot_token: str | None = None
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None
+    business_profile: str = ""
+    agent_role: str = "customer_support"
+    agent_tone: str = "professional"
+    agent_language: str = "ru"
+    business_hours: str = ""
+    escalation_rules: str = ""
+    sales_rules: str = ""
+    forbidden_topics: list[str] = Field(default_factory=list)
+    enabled_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_ENABLED_TOOLS))
 
 
 class KnowledgeSource(TimestampedModel):
@@ -578,6 +611,25 @@ class AgentCreateRequest(BaseModel):
     model_name: str = "gpt-4o-mini"
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None
+    business_profile: str = Field(default="", max_length=4000)
+    agent_role: str = Field(default="customer_support", min_length=1, max_length=120)
+    agent_tone: str = Field(default="professional", min_length=1, max_length=120)
+    agent_language: str = Field(default="ru", min_length=1, max_length=40)
+    business_hours: str = Field(default="", max_length=1000)
+    escalation_rules: str = Field(default="", max_length=2000)
+    sales_rules: str = Field(default="", max_length=2000)
+    forbidden_topics: list[str] = Field(default_factory=list, max_length=50)
+    enabled_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_ENABLED_TOOLS), max_length=30)
+
+    @field_validator("forbidden_topics", mode="before")
+    @classmethod
+    def _normalize_forbidden_topics(cls, value: object) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("enabled_tools", mode="before")
+    @classmethod
+    def _normalize_enabled_tools(cls, value: object) -> list[str]:
+        return normalize_enabled_tools(_coerce_string_list(value))
 
 
 class AgentUpdateRequest(BaseModel):
@@ -593,6 +645,25 @@ class AgentUpdateRequest(BaseModel):
     telegram_bot_token: str | None = None
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None
+    business_profile: str | None = Field(default=None, max_length=4000)
+    agent_role: str | None = Field(default=None, min_length=1, max_length=120)
+    agent_tone: str | None = Field(default=None, min_length=1, max_length=120)
+    agent_language: str | None = Field(default=None, min_length=1, max_length=40)
+    business_hours: str | None = Field(default=None, max_length=1000)
+    escalation_rules: str | None = Field(default=None, max_length=2000)
+    sales_rules: str | None = Field(default=None, max_length=2000)
+    forbidden_topics: list[str] | None = Field(default=None, max_length=50)
+    enabled_tools: list[str] | None = Field(default=None, max_length=30)
+
+    @field_validator("forbidden_topics", mode="before")
+    @classmethod
+    def _normalize_forbidden_topics(cls, value: object) -> list[str] | None:
+        return None if value is None else _coerce_string_list(value)
+
+    @field_validator("enabled_tools", mode="before")
+    @classmethod
+    def _normalize_enabled_tools(cls, value: object) -> list[str] | None:
+        return None if value is None else normalize_enabled_tools(_coerce_string_list(value))
 
 
 class KnowledgeSourceCreateRequest(BaseModel):

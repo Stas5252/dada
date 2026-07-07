@@ -466,6 +466,15 @@ class SqlAlchemyStore:
             model_name=payload.model_name,
             pathway_nodes=payload.pathway_nodes,
             pathway_edges=payload.pathway_edges,
+            business_profile=payload.business_profile,
+            agent_role=payload.agent_role,
+            agent_tone=payload.agent_tone,
+            agent_language=payload.agent_language,
+            business_hours=payload.business_hours,
+            escalation_rules=payload.escalation_rules,
+            sales_rules=payload.sales_rules,
+            forbidden_topics=payload.forbidden_topics,
+            enabled_tools=payload.enabled_tools,
         )
         with self._session_scope() as session:
             session.add(
@@ -485,6 +494,15 @@ class SqlAlchemyStore:
                     model_name=agent.model_name,
                     pathway_nodes=agent.pathway_nodes,
                     pathway_edges=agent.pathway_edges,
+                    business_profile=agent.business_profile,
+                    agent_role=agent.agent_role,
+                    agent_tone=agent.agent_tone,
+                    agent_language=agent.agent_language,
+                    business_hours=agent.business_hours,
+                    escalation_rules=agent.escalation_rules,
+                    sales_rules=agent.sales_rules,
+                    forbidden_topics=agent.forbidden_topics,
+                    enabled_tools=agent.enabled_tools,
                 )
             )
         return agent
@@ -560,6 +578,69 @@ class SqlAlchemyStore:
             ):
                 agent_model.pathway_edges = payload.pathway_edges
                 changed = True
+            if (
+                payload.business_profile is not None
+                and payload.business_profile != (agent_model.business_profile or "")
+            ):
+                agent_model.business_profile = payload.business_profile
+                changed = True
+                requires_republish = True
+            if (
+                payload.agent_role is not None
+                and payload.agent_role != (agent_model.agent_role or "customer_support")
+            ):
+                agent_model.agent_role = payload.agent_role
+                changed = True
+                requires_republish = True
+            if (
+                payload.agent_tone is not None
+                and payload.agent_tone != (agent_model.agent_tone or "professional")
+            ):
+                agent_model.agent_tone = payload.agent_tone
+                changed = True
+                requires_republish = True
+            if (
+                payload.agent_language is not None
+                and payload.agent_language != (agent_model.agent_language or "ru")
+            ):
+                agent_model.agent_language = payload.agent_language
+                changed = True
+                requires_republish = True
+            if (
+                payload.business_hours is not None
+                and payload.business_hours != (agent_model.business_hours or "")
+            ):
+                agent_model.business_hours = payload.business_hours
+                changed = True
+                requires_republish = True
+            if (
+                payload.escalation_rules is not None
+                and payload.escalation_rules != (agent_model.escalation_rules or "")
+            ):
+                agent_model.escalation_rules = payload.escalation_rules
+                changed = True
+                requires_republish = True
+            if (
+                payload.sales_rules is not None
+                and payload.sales_rules != (agent_model.sales_rules or "")
+            ):
+                agent_model.sales_rules = payload.sales_rules
+                changed = True
+                requires_republish = True
+            if (
+                payload.forbidden_topics is not None
+                and payload.forbidden_topics != (agent_model.forbidden_topics or [])
+            ):
+                agent_model.forbidden_topics = payload.forbidden_topics
+                changed = True
+                requires_republish = True
+            if (
+                payload.enabled_tools is not None
+                and payload.enabled_tools != (agent_model.enabled_tools or [])
+            ):
+                agent_model.enabled_tools = payload.enabled_tools
+                changed = True
+                requires_republish = True
 
             if changed:
                 agent_model.version += 1
@@ -1886,6 +1967,15 @@ class SqlAlchemyStore:
             telegram_bot_token=getattr(model, "telegram_bot_token", None),
             pathway_nodes=getattr(model, "pathway_nodes", None),
             pathway_edges=getattr(model, "pathway_edges", None),
+            business_profile=getattr(model, "business_profile", None) or "",
+            agent_role=getattr(model, "agent_role", None) or "customer_support",
+            agent_tone=getattr(model, "agent_tone", None) or "professional",
+            agent_language=getattr(model, "agent_language", None) or "ru",
+            business_hours=getattr(model, "business_hours", None) or "",
+            escalation_rules=getattr(model, "escalation_rules", None) or "",
+            sales_rules=getattr(model, "sales_rules", None) or "",
+            forbidden_topics=getattr(model, "forbidden_topics", None) or [],
+            enabled_tools=getattr(model, "enabled_tools", None) or ["escalate_to_human"],
             created_at=_timestamp(model.created_at),
             updated_at=_timestamp(model.updated_at),
         )

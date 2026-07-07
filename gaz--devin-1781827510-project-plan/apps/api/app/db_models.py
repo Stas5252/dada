@@ -138,6 +138,15 @@ class AgentModel(Base):
     telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pathway_nodes: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     pathway_edges: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
+    business_profile: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agent_role: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_tone: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_language: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    business_hours: Mapped[str | None] = mapped_column(Text, nullable=True)
+    escalation_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sales_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    forbidden_topics: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    enabled_tools: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

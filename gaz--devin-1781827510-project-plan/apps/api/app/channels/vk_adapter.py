@@ -41,7 +41,60 @@ class VKChannelAdapter:
         self.api_version = "5.199"
         self._dedup = DeduplicationStore()
 
-    def is_duplicate_update(self, event_id: str) -> bool:
+    @property
+    def channel_type(self) -> ChannelType:
+        return ChannelType.vk
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.group_token)
+
+    def parse_update(self, payload: dict[str, Any]) -> MessageEvent | None:
+        return parse_vk_update(payload)
+
+    async def verify_request(self, request: httpx.Request | getattr(__import__('fastapi'), 'Request'), agent, settings) -> getattr(__import__('fastapi'), 'Response') | None:
+        from fastapi import HTTPException
+        from fastapi.responses import PlainTextResponse
+        from app.store_factory import get_app_store
+        
+        store = get_app_store()
+        try:
+            tenant_id = request.url.path.strip("/").split("/")[-1]
+            tenant = store.get_tenant(tenant_id)
+        except Exception:
+            return None
+            
+        if not tenant:
+            return None
+
+        try:
+            update = await request.json()
+        except Exception:
+            return None
+            
+        vk_secret_key = tenant.settings.get("vk_secret_key")
+        
+        if update.get("type") == "confirmation":
+            return PlainTextResponse(str(tenant.settings.get("vk_confirmation_code", "")))
+        if vk_secret_key and update.get("secret") != vk_secret_key:
+            raise HTTPException(status_code=403, detail="Invalid VK secret key")
+            if isinstance(vk_confirmation_code, str) and vk_confirmation_code:
+                return PlainTextResponse(vk_confirmation_code)
+            return PlainTextResponse("ok")
+            
+        return None
+
+    def is_duplicate_update(self, payload: dict[str, object]) -> bool:
+        """Check if we've already processed this VK update."""
+        obj = payload.get("object", {})
+        if not isinstance(obj, dict):
+            return False
+        message = obj.get("message", {})
+        if not isinstance(message, dict):
+            return False
+        event_id = str(message.get("conversation_message_id", message.get("id", "")))
+        if not event_id:
+            return False
         return self._dedup.is_duplicate(f"vk_{event_id}")
 
     async def send_message(self, message: OutboundMessage) -> SendResult:

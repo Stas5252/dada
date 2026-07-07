@@ -71,7 +71,8 @@ async def mock_chat(
     check_billing_limit(UUID(tenant_id), app_store, source="chat_mock")
 
     # 1. Ask orchestrator for dynamic response
-    orchestrator = AgentOrchestrator(store=app_store, settings=settings)
+    from app.service_factory import get_agent_orchestrator
+    orchestrator = get_agent_orchestrator()
 
     # Use provided conversation_id or generate a new one
     from uuid import uuid4
@@ -96,6 +97,7 @@ async def mock_chat(
         confidence_score=orchestrator_result.confidence_score,
         forced_status=orchestrator_result.forced_status,
         forced_resolution_status=orchestrator_result.forced_resolution_status,
+        retrieval_results=orchestrator_result.retrieval_results,
     )
     if not answer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")

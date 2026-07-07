@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
     rate_limit_storage_uri: str = Field(default="", alias="RATE_LIMIT_STORAGE_URI")
-    qdrant_url: str = Field(default=":memory:", alias="QDRANT_URL")
+    qdrant_url: str = Field(default="", alias="QDRANT_URL")
     qdrant_collection_name: str = Field(
         default="callforce_knowledge_chunks",
         alias="QDRANT_COLLECTION_NAME",
@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = Field(default=15, alias="ACCESS_TOKEN_TTL_MINUTES")
     refresh_token_ttl_days: int = Field(default=30, alias="REFRESH_TOKEN_TTL_DAYS")
     store_backend: str = Field(default="sqlalchemy", alias="STORE_BACKEND")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    deepgram_api_key: str = Field(default="", alias="DEEPGRAM_API_KEY")
+    elevenlabs_api_key: str = Field(default="", alias="ELEVENLABS_API_KEY")
     allow_legacy_tenant_header: bool = Field(
         default=False,
         alias="ALLOW_LEGACY_TENANT_HEADER",
@@ -54,6 +57,10 @@ class Settings(BaseSettings):
     )
     api_public_url: str = Field(default="http://localhost:8000", alias="API_PUBLIC_URL")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    deepgram_api_key: str = Field(default="", alias="DEEPGRAM_API_KEY")
+    yandex_api_key: str = Field(default="", alias="YANDEX_API_KEY")
+
+    # Payment / YooKassa
     yookassa_shop_id: str = Field(default="", alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: str = Field(default="", alias="YOOKASSA_SECRET_KEY")
     iiko_api_login: str = Field(default="", alias="IIKO_API_LOGIN")
@@ -84,6 +91,23 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="noreply@callforce.local", alias="SMTP_FROM")
     smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+
+    @model_validator(mode="after")
+    def _validate_qdrant_for_prod(self) -> "Settings":
+        """Fail fast: production requires a real Qdrant URL."""
+        if self.app_env not in ("local", "test", "development") and not self.qdrant_url:
+            raise ValueError(
+                "QDRANT_URL is required for non-local environments. "
+                "Set QDRANT_URL to your Qdrant instance (e.g. http://qdrant:6333)."
+            )
+        return self
+
+    @property
+    def effective_qdrant_url(self) -> str:
+        """Return :memory: for local/test when QDRANT_URL is not set."""
+        if not self.qdrant_url and self.app_env in ("local", "test", "development"):
+            return ":memory:"
+        return self.qdrant_url
 
 
 @lru_cache

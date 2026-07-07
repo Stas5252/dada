@@ -1,88 +1,82 @@
-# Environment variables
+# ENVIRONMENT.md — Переменные окружения CallForce
 
-Use `.env.example` as the source template. Never commit real `.env` files.
+Полный справочник переменных окружения. См. также `.env.example` в корне проекта.
 
 ## Core
 
-| Variable | Purpose | Production note |
-| --- | --- | --- |
-| `APP_ENV` | `local`, `test`, `development`, `staging`, `production` | Must be `production` in prod |
-| `API_HOST`, `API_PORT`, `WEB_PORT` | Bind ports | Usually container defaults |
-| `CORS_ORIGINS` | Allowed web/widget origins | Must be explicit domains |
-| `API_PUBLIC_URL` | Public backend URL for webhooks/calls | Must be HTTPS |
-| `NEXT_PUBLIC_API_URL` | Frontend API target | Must point to public API |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `APP_ENV` | `local` | Окружение: `local`, `development`, `staging`, `production` |
+| `DATABASE_URL` | `postgresql://callforce:callforce@localhost:5432/callforce` | PostgreSQL connection string |
+| `ACCESS_TOKEN_SECRET` | `local-development-token-secret` | ⚠️ Обязательно сменить в prod |
+| `ACCESS_TOKEN_TTL_MINUTES` | `15` | TTL access-токена |
+| `REFRESH_TOKEN_TTL_DAYS` | `30` | TTL refresh-токена |
+| `STORE_BACKEND` | `sqlalchemy` | Бэкенд хранилища: `sqlalchemy` / `memory` |
+| `SEED_DEMO_DATA` | `true` | Загружать демо-данные |
+| `API_PUBLIC_URL` | `http://localhost:8000` | Публичный URL API (для вебхуков) |
+| `CORS_ORIGINS` | `http://localhost:3000` | Разрешённые CORS origins |
 
-## Data stores
+## LLM
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection |
-| `STORE_BACKEND` | `sqlalchemy` for durable store |
-| `REDIS_URL` | Redis default URL |
-| `RATE_LIMIT_ENABLED` | Enables public/API rate limits; set `false` only for local repeated e2e runs |
-| `RATE_LIMIT_STORAGE_URI` | Redis/memory rate limit backend |
-| `QDRANT_URL` | Qdrant vector DB |
-| `QDRANT_COLLECTION_NAME` | Knowledge collection |
-| `OBJECT_STORAGE_ENDPOINT` | S3/MinIO endpoint |
-| `OBJECT_STORAGE_BUCKET` | Upload/recording bucket |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `LLM_PROVIDER` | `auto` | `auto` / `openai` / `vllm` |
+| `OPENAI_API_KEY` | — | Ключ OpenAI API |
+| `OPENAI_FAST_MODEL` | `gpt-4o-mini` | Быстрая модель для простых запросов |
+| `OPENAI_SMART_MODEL` | `gpt-4o` | Умная модель для сложных запросов |
+| `VLLM_BASE_URL` | — | URL self-hosted vLLM |
+| `VLLM_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | Модель для vLLM |
+| `LLM_TEMPERATURE` | `0.3` | Температура генерации |
+| `LLM_MAX_TOKENS` | `1024` | Максимум токенов |
+| `LLM_TIMEOUT_SECONDS` | `30.0` | Таймаут запроса к LLM |
 
-## Security
+## Речь (STT/TTS)
 
-| Variable | Purpose | Production note |
-| --- | --- | --- |
-| `ACCESS_TOKEN_SECRET` | JWT signing | Strong random secret required |
-| `REFRESH_TOKEN_TTL_DAYS` | Refresh token lifetime | Set by security policy |
-| `ACCESS_TOKEN_TTL_MINUTES` | Access token lifetime | Short TTL recommended |
-| `ENCRYPTION_KEY` | Integration secret encryption | Strong key required |
-| `WEBHOOK_SIGNING_SECRET` | Custom webhook signatures | Rotate when leaked |
-| `ALLOW_LEGACY_TENANT_HEADER` | Header-based tenant fallback | Must be `false` outside local/test |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `YANDEX_API_KEY` | — | Ключ Yandex SpeechKit (приоритет для RU) |
+| `DEEPGRAM_API_KEY` | — | Ключ Deepgram (fallback STT) |
+| `ELEVENLABS_API_KEY` | — | Ключ ElevenLabs (TTS) |
 
-## AI providers
+## Каналы
 
-| Variable | Purpose |
-| --- | --- |
-| `LLM_PROVIDER` | `auto`, `openai`, local provider mode |
-| `OPENAI_API_KEY` | OpenAI key |
-| `OPENAI_FAST_MODEL` | Fast model |
-| `OPENAI_SMART_MODEL` | Smart model |
-| `VLLM_BASE_URL` | Local/OpenAI-compatible provider |
-| `VLLM_API_KEY` | Local provider key if required |
-| `VLLM_MODEL` | Local model name |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | Токен Telegram бота |
+| `TWILIO_ACCOUNT_SID` | — | Twilio Account SID |
+| `TWILIO_AUTH_TOKEN` | — | Twilio Auth Token |
+| `TWILIO_PHONE_NUMBER` | — | Twilio номер телефона |
+| `ASTERISK_ARI_USERNAME` | — | Asterisk ARI логин |
+| `ASTERISK_ARI_PASSWORD` | — | Asterisk ARI пароль |
 
-## Voice and telephony
+## Платежи и интеграции
 
-| Variable | Purpose |
-| --- | --- |
-| `TWILIO_ACCOUNT_SID` | Twilio account |
-| `TWILIO_AUTH_TOKEN` | Twilio auth |
-| `TWILIO_PHONE_NUMBER` | Outbound number |
-| `ASTERISK_ARI_URL` | Asterisk ARI URL |
-| `ASTERISK_ARI_USERNAME` | ARI user |
-| `ASTERISK_ARI_PASSWORD` | ARI password |
-| `STT_MODEL_PATH` | Local STT model path |
-| `TTS_MODEL_PATH` | Local TTS model path |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `YOOKASSA_SHOP_ID` | — | ID магазина YooKassa |
+| `YOOKASSA_SECRET_KEY` | — | Секрет YooKassa |
+| `IIKO_API_LOGIN` | — | Логин iikoCloud API |
+| `IIKO_API_PASSWORD` | — | Пароль iikoCloud API |
 
-## Channels, billing and integrations
+## Инфраструктура
 
-| Variable | Purpose |
-| --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token |
-| `YOOKASSA_SHOP_ID` | YooKassa shop |
-| `YOOKASSA_SECRET_KEY` | YooKassa secret |
-| `IIKO_API_LOGIN` | iikoCloud API login |
-| `IIKO_API_PASSWORD` | iikoCloud password if used |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis URL |
+| `QDRANT_URL` | — | Qdrant URL (обязателен для prod) |
+| `QDRANT_COLLECTION_NAME` | `callforce_knowledge_chunks` | Коллекция Qdrant |
+| `QDRANT_VECTOR_SIZE` | `384` | Размерность эмбеддингов |
+| `SENTRY_DSN` | — | DSN Sentry для мониторинга |
+| `OTEL_ENABLED` | `false` | Включить OpenTelemetry |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP эндпоинт |
 
-## Launch readiness checks
+## Email (SMTP)
 
-Use `GET /api/v1/tenants/{tenant_id}/settings/integration-readiness` from an authenticated owner/admin/operator session before a pilot launch. The endpoint returns configured/missing status and setting names only; it must not expose provider secret values.
-
-Use `GET /api/v1/tenants/{tenant_id}/settings/channel-webhooks` to verify Telegram/VK/WhatsApp callback URLs, public HTTPS readiness and missing tenant settings. Tenant-level channel secrets include `whatsapp_app_secret` and optional `vk_secret_key`; they are stored in tenant settings and are never returned by diagnostics.
-
-## Production domains
-
-| Variable | Purpose |
-| --- | --- |
-| `APP_DOMAIN` | Main app domain |
-| `API_DOMAIN` | API domain |
-| `GRAFANA_DOMAIN` | Grafana domain |
-| `ACME_EMAIL` | TLS certificate email |
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `SMTP_HOST` | — | SMTP сервер |
+| `SMTP_PORT` | `587` | SMTP порт |
+| `SMTP_USER` | — | SMTP логин |
+| `SMTP_PASSWORD` | — | SMTP пароль |
+| `SMTP_FROM` | `noreply@callforce.local` | Адрес отправителя |
+| `SMTP_USE_TLS` | `true` | Использовать TLS |

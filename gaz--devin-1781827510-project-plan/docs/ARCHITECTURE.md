@@ -1,65 +1,95 @@
-# Architecture
+# ARCHITECTURE.md — CallForce Platform
 
-## System overview
+## Обзор
 
-CallForce is a modular SaaS monorepo:
+CallForce — AI-платформа omnichannel поддержки и продаж. Позволяет компаниям развернуть AI-агента, который общается с клиентами через голос, мессенджеры и web-виджет; ведёт CRM; обрабатывает заказы; проводит outbound-кампании.
 
-- `apps/api`: FastAPI backend.
-- `apps/web`: Next.js frontend.
-- `packages/shared-types`: shared TypeScript contracts.
-- `packages/ui`: shared UI exports.
-- `infra`: deployment and observability.
-- `migrations`: Alembic migrations.
-- `scripts`: operational scripts.
-- `docs`: product, architecture and runbooks.
+## Стек технологий
 
-## Backend layers
+| Слой | Технология |
+|---|---|
+| Backend API | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 |
+| База данных | PostgreSQL (prod), SQLite (local/test) |
+| Векторная БД | Qdrant (`:memory:` для local, внешний URL для prod) |
+| Очередь задач | Arq + Redis |
+| LLM | OpenAI GPT-4o / GPT-4o-mini, vLLM (self-hosted Qwen), Yandex GPT |
+| STT/TTS | Yandex SpeechKit (RU-first), Deepgram, OpenAI Whisper |
+| Телефония | Twilio, Asterisk ARI/SIP |
+| Мессенджеры | Telegram Bot API, VK Bot API, WhatsApp Cloud API |
+| Платежи | YooKassa |
+| CRM/Orders | iikoCloud |
+| Frontend | Next.js 14, TypeScript, TailwindCSS |
+| Мониторинг | Sentry, OpenTelemetry, Prometheus-compatible метрики |
 
-- API routes: `apps/api/app/api/v1`.
-- Auth/security: `security.py`, `rbac.py`, `tenant.py`, auth routes.
-- Store/data: `store.py`, `sqlalchemy_store.py`, `db_models.py`, migrations.
-- AI/RAG: `llm_router.py`, `rag.py`, `parsers.py`, `orchestrator.py`, `policy_validator.py`.
-- Safety/compliance: `guard_rails.py` plus durable contact suppression/do-not-call and contact consent records in the store layer.
-- Voice: `voice_service.py`, `speech_service.py`, `twilio_service.py`, `asterisk_ari_service.py`.
-- Integrations: `integration_services.py`, channel adapters, iiko/AmoCRM, YooKassa.
-- Observability: logging, tracing, health/readiness, Prometheus/Grafana infra.
+## Архитектура
 
-## Frontend layers
+```
+┌─────────────────────────────────────────────────────┐
+│                    Frontend (Next.js)                │
+│   Dashboard · Agent Builder · Inbox · CRM · Voice   │
+└──────────────────────┬──────────────────────────────┘
+                       │ REST / WebSocket
+┌──────────────────────▼──────────────────────────────┐
+│                  FastAPI Backend                     │
+│                                                      │
+│  ┌──────────┐ ┌───────────┐ ┌─────────────────────┐ │
+│  │ Auth/RBAC│ │Orchestrator│ │ Guard Rails (safety)│ │
+│  └──────────┘ └─────┬─────┘ └─────────────────────┘ │
+│                     │                                │
+│  ┌──────────────────▼───────────────────────────────┐│
+│  │              LLM Router (multi-model)            ││
+│  │  OpenAI · vLLM · fallback chain                  ││
+│  └──────────────────────────────────────────────────┘│
+│                                                      │
+│  ┌──────────┐ ┌───────────┐ ┌──────────┐            │
+│  │   RAG    │ │   Voice   │ │  Channels│            │
+│  │ (Qdrant) │ │ STT + TTS │ │ TG/VK/WA │            │
+│  └──────────┘ └───────────┘ └──────────┘            │
+│                                                      │
+│  ┌──────────┐ ┌───────────┐ ┌──────────┐            │
+│  │   CRM    │ │  Billing  │ │  Outbound│            │
+│  │ Leads/   │ │ YooKassa  │ │ Campaigns│            │
+│  │ Deals    │ │ Usage     │ │ Follow-up│            │
+│  └──────────┘ └───────────┘ └──────────┘            │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│          Store Layer (mixin architecture)            │
+│  AuthStoreMixin · AgentsStoreMixin · CrmStoreMixin   │
+│  ConversationsStoreMixin · BillingStoreMixin          │
+│  AnalyticsStoreMixin                                 │
+│                                                      │
+│  SqlAlchemyStore (prod) ←── InMemoryStore (test)     │
+└──────────────────────┬──────────────────────────────┘
+                       │
+         ┌─────────────┼─────────────┐
+         │             │             │
+    PostgreSQL      Qdrant        Redis
+```
 
-- App router pages under `apps/web/app`.
-- Server actions in `apps/web/app/actions.ts`.
-- API client in `apps/web/lib/core-api.ts`.
-- Auth helpers in `apps/web/lib/auth.ts`.
-- Reusable workspace components under `apps/web/app/components`.
-- Playwright tests under `apps/web/tests`.
+## Мультитенантность
 
-## Data stores
+- Каждый запрос фильтруется по `tenant_id` на уровне store.
+- JWT-токены содержат `tenant_id` и `role`.
+- RBAC: 4 роли — `owner`, `admin`, `agent`, `viewer`.
+- Row-Level Security (RLS) включён для PostgreSQL.
 
-- PostgreSQL: durable tenant/user/agent/conversation/billing data.
-- Redis: rate limits, queue-ready coordination.
-- Qdrant: vector search for RAG.
-- Object storage: future uploads/call recordings.
+## Store Architecture (после T3.4)
 
-## Provider boundaries
+`SqlAlchemyStore` разбит на домены через Python mixins:
+- `AuthStoreMixin` — пользователи, сессии, токены
+- `AgentsStoreMixin` — агенты, шаблоны, инструменты
+- `CrmStoreMixin` — лиды, сделки, заказы, контакты
+- `ConversationsStoreMixin` — диалоги, сообщения
+- `BillingStoreMixin` — биллинг, подписки, использование
+- `AnalyticsStoreMixin` — аналитика, отчёты
 
-The product should keep provider interfaces for:
+## Guard Rails (безопасность AI)
 
-- LLM.
-- STT.
-- TTS.
-- Telephony.
-- Messaging channels.
-- CRM.
-- Calendar/booking.
-- Billing.
-- Storage.
-
-Provider-specific code must stay behind adapters so CallForce can support local/SaaS/enterprise deployments without rewriting business logic.
-
-## Production architecture direction
-
-Single-node Docker Compose is enough for first paid pilots. Move to Kubernetes only after:
-
-- multiple concurrent tenants require horizontal scaling;
-- real voice traffic creates measurable CPU/network limits;
-- Redis/Qdrant/PostgreSQL operational needs exceed compose-based operations.
+- Prompt injection detection (RU + EN)
+- Toxicity escalation
+- Secret leak prevention
+- Prohibited claims blocking
+- Opt-out/DNC compliance
+- Human handoff intent detection
+- Tool safety validation

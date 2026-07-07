@@ -8,6 +8,9 @@ from app.store import InMemoryStore, store
 
 AppStore = InMemoryStore | SqlAlchemyStore
 
+from typing import Any
+GLOBAL_ARQ_POOL: Any = None
+
 
 @lru_cache
 def get_app_store() -> AppStore:

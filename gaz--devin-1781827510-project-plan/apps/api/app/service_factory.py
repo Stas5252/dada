@@ -67,3 +67,13 @@ def get_webhook_signer(tenant_id: str) -> LocalWebhookSigner:
         config=WebhookSigningConfig(tenant_id=tenant_id, key_id="local-default"),
         signing_key=b"local-webhook-signing-key",
     )
+
+
+@lru_cache
+def get_agent_orchestrator() -> "AgentOrchestrator":
+    from app.settings import get_settings
+    from app.store_factory import get_app_store
+    from app.orchestrator import AgentOrchestrator
+    
+    return AgentOrchestrator(store=get_app_store(), settings=get_settings())
+

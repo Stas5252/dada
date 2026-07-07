@@ -11,7 +11,7 @@ from app.store_factory import get_app_store
 
 def test_vk_webhook_confirmation() -> None:
     app = create_app()
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=True)
     store = get_app_store()
 
     # Register tenant properly
@@ -42,7 +42,7 @@ def test_vk_webhook_confirmation() -> None:
 
 def test_vk_webhook_message_processing() -> None:
     app = create_app()
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=True)
     store = get_app_store()
 
     reg_payload = RegisterRequest(
@@ -98,7 +98,7 @@ def test_vk_webhook_message_processing() -> None:
 
 def test_whatsapp_webhook_verification() -> None:
     app = create_app()
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=True)
     store = get_app_store()
 
     reg_payload = RegisterRequest(
@@ -141,7 +141,7 @@ def test_whatsapp_webhook_verification() -> None:
 
 def test_whatsapp_webhook_message_processing() -> None:
     app = create_app()
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=True)
     store = get_app_store()
 
     reg_payload = RegisterRequest(

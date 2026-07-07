@@ -1,5 +1,5 @@
 import sentry_sdk
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -8,11 +8,14 @@ from app.api.v1.audit import router as audit_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.billing import router as billing_router
 from app.api.v1.conversations import router as conversations_router
+from app.api.v1.crm import router as crm_router
 from app.api.v1.health import router as health_router
+from app.api.v1.inbox import router as inbox_router
 from app.api.v1.integrations import router as integrations_router
 from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.tenants import router as tenants_router
 from app.api.v1.voice import router as voice_router
+from app.api.v1.campaigns import router as campaigns_router
 from app.settings import get_settings
 from app.tenant import TenantContextMiddleware
 
@@ -71,9 +74,31 @@ def create_app() -> FastAPI:
             from app.asterisk_ari_service import get_asterisk_ari_service
             ari_service = get_asterisk_ari_service()
             task = asyncio.create_task(ari_service.run())
+            
+        import urllib.parse
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        import app.store_factory as store_factory
+        import sys
+        
+        pool = None
+        if settings.app_env != "test" and "pytest" not in sys.modules:
+            parsed = urllib.parse.urlparse(settings.redis_url)
+            redis_settings = RedisSettings(
+                host=parsed.hostname or 'localhost',
+                port=parsed.port or 6379,
+                database=int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
+            )
+            pool = await create_pool(redis_settings)
+            store_factory.GLOBAL_ARQ_POOL = pool
+        
         yield
+        
         if task is not None:
             task.cancel()
+        if pool is not None:
+            await pool.close()
+
 
     app = FastAPI(
         title="CallForce API",
@@ -118,6 +143,8 @@ def create_app() -> FastAPI:
     app.include_router(conversations_router, prefix="/api/v1")
     app.include_router(integrations_router, prefix="/api/v1")
     app.include_router(voice_router, prefix="/api/v1")
+    app.include_router(campaigns_router, prefix="/api/v1")
+    app.include_router(inbox_router, prefix="/api/v1/inbox")
     from app.api.v1.telegram import router as telegram_router
 
     app.include_router(telegram_router, prefix="/api/v1")
@@ -139,6 +166,10 @@ def create_app() -> FastAPI:
 
     from app.api.v1.whatsapp import router as whatsapp_router
     app.include_router(whatsapp_router, prefix="/api/v1")
+    from app.api.v1.avito import router as avito_router
+    app.include_router(avito_router, prefix="/api/v1")
+    from app.api.v1.meta import router as meta_router
+    app.include_router(meta_router, prefix="/api/v1")
     app.add_middleware(TenantContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -156,6 +187,8 @@ def create_app() -> FastAPI:
 
     from app.api.v1.admin import router as admin_router
     app.include_router(admin_router, prefix="/api/v1")
+    
+    app.include_router(crm_router, prefix="/api/v1")
 
     from app.api.v1.operator_ws import router as operator_ws_router
     app.include_router(operator_ws_router, prefix="/api/v1")

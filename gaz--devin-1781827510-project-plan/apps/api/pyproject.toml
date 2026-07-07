@@ -37,6 +37,8 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.43b0",
     "sentence-transformers>=3.0.0",
     "tenacity>=9.0.0",
+    "arq>=0.26.0",
+    "websockets>=13.0",
 ]
 
 [project.optional-dependencies]

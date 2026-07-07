@@ -66,3 +66,34 @@ class DeduplicationStore:
             self.seen_ids = {k: v for k, v in self.seen_ids.items() if v > cutoff}
         self.seen_ids[key] = datetime.now(UTC)
         return False
+
+
+from typing import Protocol, runtime_checkable
+from fastapi import Request, Response
+from app.schemas import Agent
+from app.settings import Settings
+
+@runtime_checkable
+class ChannelAdapter(Protocol):
+    """Generic interface for channel adapters."""
+
+    @property
+    def is_configured(self) -> bool:
+        ...
+
+    async def send_message(self, message: OutboundMessage) -> SendResult:
+        ...
+
+    def is_duplicate_update(self, update_id: str) -> bool:
+        ...
+
+    def parse_update(self, payload: dict[str, object]) -> MessageEvent | None:
+        ...
+
+    async def verify_request(self, request: Request, agent: Agent, settings: Settings) -> Response | None:
+        """
+        Verify the incoming webhook request (e.g., validate signatures).
+        Return a Response object to short-circuit (e.g., for webhook verification challenges like VK/Meta),
+        or None to continue processing.
+        """
+        ...

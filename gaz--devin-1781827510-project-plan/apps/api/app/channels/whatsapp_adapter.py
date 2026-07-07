@@ -66,8 +66,77 @@ class WhatsAppChannelAdapter:
         self.api_version = "v19.0"
         self._dedup = DeduplicationStore()
 
-    def is_duplicate_update(self, event_id: str) -> bool:
-        return self._dedup.is_duplicate(f"wa_{event_id}")
+    @property
+    def channel_type(self) -> ChannelType:
+        return ChannelType.whatsapp
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.access_token and self.phone_number_id)
+
+    def parse_update(self, payload: dict[str, Any]) -> MessageEvent | None:
+        events = parse_whatsapp_update(payload)
+        # WhatsApp webhooks can contain multiple messages in a batch.
+        # For simplicity in the generic pipeline, we return the first event.
+        # Ideally, the generic pipeline should handle list[MessageEvent], but 
+        # we can just return the first one since usually there's only one per webhook.
+        return events[0] if events else None
+
+    async def verify_request(self, request: httpx.Request | getattr(__import__('fastapi'), 'Request'), agent, settings) -> getattr(__import__('fastapi'), 'Response') | None:
+        from fastapi import HTTPException
+        from fastapi.responses import PlainTextResponse
+        from app.store_factory import get_app_store
+
+        store = get_app_store()
+        # Parse tenant_id from url since agent can be None
+        try:
+            tenant_id = request.url.path.strip("/").split("/")[-1]
+            tenant = store.get_tenant(tenant_id)
+        except Exception:
+            return None
+        
+        if not tenant:
+            return None
+
+        # Handle GET Verification
+        if request.method == "GET":
+            mode = request.query_params.get("hub.mode")
+            token = request.query_params.get("hub.verify_token")
+            challenge = request.query_params.get("hub.challenge")
+
+            wa_verify_token = tenant.settings.get("whatsapp_verify_token", "")
+
+            if mode == "subscribe" and token == wa_verify_token:
+                return PlainTextResponse(content=challenge or "")
+            raise HTTPException(status_code=403, detail="Verification failed")
+
+        # Handle POST payload validation
+        wa_app_secret = tenant.settings.get("whatsapp_app_secret")
+        if not wa_app_secret:
+            raise HTTPException(status_code=403, detail="WhatsApp channel not fully configured")
+            
+        signature = request.headers.get("x-hub-signature-256")
+        if signature:
+            import hashlib
+            import hmac
+            body_bytes = await request.body()
+            expected_sig = "sha256=" + hmac.new(
+                str(wa_app_secret).encode("utf-8"), body_bytes, hashlib.sha256
+            ).hexdigest()
+            if not hmac.compare_digest(expected_sig, signature):
+                raise HTTPException(status_code=403, detail="Invalid signature")
+        elif wa_app_secret and not signature:
+            raise HTTPException(status_code=403, detail="Missing signature")
+            
+        return None
+
+    def is_duplicate_update(self, payload: dict[str, object]) -> bool:
+        """Check if we've already processed this WA update."""
+        # Fast way to get first message ID
+        events = parse_whatsapp_update(payload)
+        if not events:
+            return False
+        return self._dedup.is_duplicate(f"wa_{events[0].external_message_id}")
 
     async def send_message(self, message: OutboundMessage) -> SendResult:
         """Send a message via Meta Cloud API."""

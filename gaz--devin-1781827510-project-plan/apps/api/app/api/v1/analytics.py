@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.api.v1.dependencies import AuthContext, require_permission
 from app.rbac import Permission
 from app.store_factory import AppStore, get_app_store
+from app.schemas import WeeklyReport, QAEvaluation
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -69,80 +70,22 @@ async def analytics_overview(
     """Get analytics overview for the current tenant."""
     tenant_id = UUID(auth.tenant_id)
 
-    # Get all conversations
-    conversations = app_store.list_conversations(tenant_id)
-    agents = app_store.list_agents(tenant_id)
-    sources = app_store.list_knowledge_sources(tenant_id)
-
-    # Count by status
-    resolved = sum(1 for c in conversations if c.status.value == "resolved")
-    escalated = sum(1 for c in conversations if c.status.value == "escalated")
-    open_count = sum(1 for c in conversations if c.status.value == "open")
-    total = len(conversations)
-
-    automation_rate = (resolved / total * 100) if total > 0 else 0.0
-
-    # Count by channel
-    channel_counts: Counter[str] = Counter()
-    for c in conversations:
-        channel_counts[c.channel] += 1
-    channels = [ChannelBreakdown(channel=ch, count=cnt) for ch, cnt in channel_counts.most_common()]
-
-    # Conversations by day (last 30 days)
-    now = datetime.now(UTC)
-    day_counts: Counter[str] = Counter()
-    for c in conversations:
-        day_str = c.created_at.strftime("%Y-%m-%d")
-        day_counts[day_str] += 1
-
-    # Fill in missing days
-    daily: list[DailyConversation] = []
-    for i in range(29, -1, -1):
-        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-        daily.append(DailyConversation(date=day, count=day_counts.get(day, 0)))
-
-    # Count messages
-    total_messages = app_store.count_messages(tenant_id)
-
-    avg_msgs = (total_messages / total) if total > 0 else 0.0
-
-    # Active agents (published)
-    active_agents = sum(1 for a in agents if a.status.value == "published")
-
-    # Unresolved topics (conversations marked as needs_human)
-    unresolved: list[UnresolvedTopic] = []
-    needs_human = [c for c in conversations if c.resolution_status == "needs_human"]
-    topic_counter: Counter[str] = Counter()
-    topic_last_seen: dict[str, datetime] = {}
-    for c in needs_human:
-        summary = c.summary[:80] if c.summary else "Без описания"
-        topic_counter[summary] += 1
-        if summary not in topic_last_seen or c.created_at > topic_last_seen[summary]:
-            topic_last_seen[summary] = c.created_at
-
-    for topic, count in topic_counter.most_common(10):
-        unresolved.append(
-            UnresolvedTopic(
-                question=topic,
-                count=count,
-                last_seen=topic_last_seen[topic],
-            )
-        )
+    overview = app_store.get_analytics_overview(tenant_id)
 
     return AnalyticsOverview(
-        total_conversations=total,
-        resolved=resolved,
-        escalated=escalated,
-        open=open_count,
-        automation_rate=round(automation_rate, 1),
-        total_agents=len(agents),
-        active_agents=active_agents,
-        total_knowledge_sources=len(sources),
-        total_messages=total_messages,
-        avg_messages_per_conversation=round(avg_msgs, 1),
-        conversations_by_channel=channels,
-        conversations_by_day=daily,
-        top_unresolved=unresolved,
+        total_conversations=overview["total_conversations"],
+        resolved=overview["resolved"],
+        escalated=overview["escalated"],
+        open=overview["open"],
+        automation_rate=round(overview["automation_rate"], 1),
+        total_agents=overview["total_agents"],
+        active_agents=overview["active_agents"],
+        total_knowledge_sources=overview["total_knowledge_sources"],
+        total_messages=overview["total_messages"],
+        avg_messages_per_conversation=round(overview["avg_messages_per_conversation"], 1),
+        conversations_by_channel=[ChannelBreakdown(**cb) for cb in overview["conversations_by_channel"]],
+        conversations_by_day=[DailyConversation(**db) for db in overview["conversations_by_day"]],
+        top_unresolved=[],
     )
 
 
@@ -178,3 +121,47 @@ async def analytics_agents(
         )
 
     return result
+
+
+@router.get("/reports", response_model=list[WeeklyReport])
+async def list_reports(
+    auth: AuthContext = Depends(READ_AUDIT),
+    app_store: AppStore = Depends(get_app_store),
+) -> list[WeeklyReport]:
+    """List weekly AI reports."""
+    return app_store.list_weekly_reports(UUID(auth.tenant_id))
+
+
+class GenerateReportResponse(BaseModel):
+    message: str
+    job_id: str
+
+
+@router.post("/reports/generate", response_model=GenerateReportResponse)
+async def generate_report(
+    auth: AuthContext = Depends(READ_AUDIT),
+    app_store: AppStore = Depends(get_app_store),
+) -> GenerateReportResponse:
+    """Trigger background generation of weekly AI report."""
+    from uuid import uuid4
+    job_id = uuid4()
+    app_store.background_jobs.submit(
+        "run_weekly_report",
+        job_id,
+        tenant_id=auth.tenant_id,
+        _store=app_store
+    )
+    return GenerateReportResponse(
+        message="Отчет поставлен в очередь на генерацию.",
+        job_id=str(job_id)
+    )
+
+
+@router.get("/conversations/{conversation_id}/qa", response_model=list[QAEvaluation])
+async def get_conversation_qa(
+    conversation_id: str,
+    auth: AuthContext = Depends(READ_AUDIT),
+    app_store: AppStore = Depends(get_app_store),
+) -> list[QAEvaluation]:
+    """Get QA evaluations for a conversation."""
+    return app_store.get_qa_evaluations(UUID(auth.tenant_id), UUID(conversation_id))

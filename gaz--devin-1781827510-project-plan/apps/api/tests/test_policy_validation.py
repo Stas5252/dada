@@ -110,7 +110,7 @@ def test_runtime_guardrails_detect_opt_out_and_tool_confirmation() -> None:
 
 @pytest.mark.anyio
 async def test_runtime_guardrail_opt_out_records_escalated_turn(monkeypatch) -> None:
-    monkeypatch.setattr("app.store.retrieve_sources", lambda *args, **kwargs: [])
+    monkeypatch.setattr("app.rag.retrieve_sources", lambda *args, **kwargs: [])
 
     store = InMemoryStore()
     tenant_id = uuid4()

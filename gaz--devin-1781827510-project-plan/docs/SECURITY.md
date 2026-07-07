@@ -1,69 +1,58 @@
-# Security
+# SECURITY.md — Безопасность CallForce
 
-## Current controls
+## Аутентификация
 
-- JWT access tokens with refresh sessions.
-- Refresh rotation and logout revocation.
-- MFA/TOTP foundation.
-- RBAC roles and permissions.
-- Tenant isolation checks.
-- Audit logs.
-- API key management.
-- Webhook signature contracts.
-- Integration secret encryption helpers.
-- Rate limiting.
-- Secure response headers middleware.
-- Startup guard against default token secret in production.
-- Runtime guardrails for opt-out intent, human handoff intent, regulated topics, unsafe outbound claims and unsafe tool calls.
-- Per-tenant guardrail policy API/UI for prompt injection blocking, human handoff, regulated-topic escalation, toxicity escalation, outbound safety, tool safety, AI disclosure and custom regulated/prohibited phrases.
-- Per-channel compliance policy API/UI for `autopilot`, `draft_only` and `human_approval`, plus outbound disable controls, opt-out notices, consent-required outbound controls and per-conversation auto-reply caps for messaging and voice.
-- Durable contact suppression/do-not-call storage with API create/list/revoke and outbound blocking.
-- Durable contact consent storage with API create/list/revoke, expiry support and consent-required outbound blocking for operator sends and voice calls.
-- Bandit and Safety checks in local verification.
+- JWT-токены (access + refresh) с `ACCESS_TOKEN_SECRET`
+- Access-токен: 15 мин TTL (настраивается)
+- Refresh-токен: 30 дней TTL, хэшируется в БД
+- Регистрация с email-верификацией
+- Пароли хэшируются через bcrypt
 
-## Required production rules
+## Авторизация (RBAC)
 
-- No default secrets in production.
-- `ALLOW_LEGACY_TENANT_HEADER=false` in staging and production.
-- `SEED_DEMO_DATA=false` in production.
-- All public endpoints must have explicit rate limits.
-- All webhooks must verify provider signatures or use approved test mode.
-- All integration credentials must be encrypted at rest or stored in a secrets manager.
-- Security scans must fail CI for high/critical issues. The workflow is configured as blocking; the remaining proof is a green GitHub Actions run.
-- Production logs must not contain raw tokens, passwords, payment secrets or private customer data.
+4 роли с иерархией прав:
+- **owner** — все права, включая управление пользователями
+- **admin** — управление агентами, базой знаний, биллингом; НЕ может управлять auth
+- **agent** — управление чатами, чтение агентов и базы знаний
+- **viewer** — только чтение
 
-## Data protection
+## Мультитенантная изоляция
 
-Current foundation:
+- Каждый запрос фильтруется по `tenant_id` из JWT
+- Row-Level Security (RLS) на уровне PostgreSQL
+- Тесты tenant isolation подтверждают, что тенант A не видит данные тенанта B
 
-- Tenant-scoped data model.
-- Audit trail.
-- Token/session security.
-- Secret encryption helpers.
+## Guard Rails (AI Safety)
 
-Needed before enterprise production:
+- **Prompt injection detection**: 10+ паттернов на RU и EN
+- **Toxicity detection**: автоматическая эскалация на оператора
+- **Secret leak prevention**: блокировка системного промпта и ключей в ответах LLM
+- **Prohibited claims**: блокировка необоснованных гарантий ("100% результат")
+- **Opt-out/DNC**: автоматическая обработка запросов на отказ от коммуникаций
+- **Human handoff**: автоматическая эскалация при запросе оператора
 
-- Data retention policy.
-- Data export/delete flow.
-- Call recording consent policy.
-- Live-provider do-not-call, opt-out and outbound-consent enforcement proof.
-- PII masking in logs and traces.
-- Backup encryption and access policy.
-- Threat model for voice, webhooks, billing and RAG.
+## SSRF Protection
 
-## Security gaps
+- Валидация URL: запрет доступа к приватным IP-адресам
+- Валидация при редиректах
+- Ограничение размера загружаемого контента (5 MB)
 
-P0:
+## Шифрование
 
-- Verify blocking security CI on GitHub Actions.
-- Verify webhook signatures for live providers.
-- Expand runtime guard rails beyond the initial policy engine with larger red-team datasets, provider-specific consent templates and live-provider compliance evidence.
-- Prove opt-out/do-not-call/consent enforcement across all live providers.
-- Run a documented threat model.
+- Токены шифруются at-rest через Fernet
+- `ACCESS_TOKEN_SECRET` обязательно должен быть изменён для production
+- Все API-ключи интеграций хранятся только в переменных окружения
 
-P1:
+## Rate Limiting
 
-- Add retention/export/delete workflows.
-- Add SSO/SAML/OIDC roadmap.
-- Add secrets rotation runbook.
-- Add audit review dashboard for suspicious activity.
+- Глобальный rate limiter (настраивается через `RATE_LIMIT_ENABLED`)
+- Per-endpoint лимиты на критичных эндпоинтах (auth, voice)
+
+## Рекомендации для Production
+
+1. Сменить `ACCESS_TOKEN_SECRET` на случайную строку ≥ 32 символа
+2. Настроить HTTPS через reverse proxy (nginx/Caddy)
+3. Настроить CORS origins (`CORS_ORIGINS`)
+4. Включить Sentry (`SENTRY_DSN`)
+5. Использовать PostgreSQL с SSL
+6. Redis с паролем

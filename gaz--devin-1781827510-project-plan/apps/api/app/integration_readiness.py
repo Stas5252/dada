@@ -1,4 +1,6 @@
 from collections.abc import Mapping
+from typing import Literal
+from uuid import UUID
 from datetime import UTC, datetime
 
 from app.schemas import (
@@ -17,7 +19,7 @@ def build_integration_readiness(
     tenant_values = tenant_settings or {}
     items = [
         _llm_item(tenant_values, settings),
-        _speech_item(tenant_values, settings),
+        _check_speech_provider(tenant_values, settings),
         _web_widget_item(),
         _tenant_or_env_item(
             key="telegram",
@@ -115,6 +117,9 @@ def build_integration_readiness(
             stub_summary="iiko order/menu sync is in setup mode until iiko credentials are configured.",
             configured_summary="iikoCloud credentials are configured.",
         ),
+        _qdrant_item(settings),
+        _redis_item(settings),
+        _smtp_item(settings),
     ]
     blocking_missing = any(
         item.blocking and item.status != IntegrationReadinessStatus.configured
@@ -173,17 +178,31 @@ def _llm_item(
     )
 
 
-def _speech_item(
+def _check_speech_provider(
     tenant_values: Mapping[str, object],
     settings: Settings,
 ) -> IntegrationReadinessItem:
-    configured = _has_value(tenant_values.get("openai_api_key")) or bool(settings.openai_api_key)
-    required_settings = ["openai_api_key", "OPENAI_API_KEY"]
     configured_settings: list[str] = []
+    
+    # Check tenant settings
     if _has_value(tenant_values.get("openai_api_key")):
         configured_settings.append("openai_api_key")
+    if _has_value(tenant_values.get("yandex_api_key")):
+        configured_settings.append("yandex_api_key")
+    if _has_value(tenant_values.get("deepgram_api_key")):
+        configured_settings.append("deepgram_api_key")
+        
+    # Check global settings
     if settings.openai_api_key:
         configured_settings.append("OPENAI_API_KEY")
+    if settings.yandex_api_key:
+        configured_settings.append("YANDEX_API_KEY")
+    if settings.deepgram_api_key:
+        configured_settings.append("DEEPGRAM_API_KEY")
+        
+    configured = len(configured_settings) > 0
+    required_settings = ["openai_api_key", "OPENAI_API_KEY", "YANDEX_API_KEY", "DEEPGRAM_API_KEY"]
+    
     return IntegrationReadinessItem(
         key="speech_stt_tts",
         label="Speech STT/TTS",
@@ -201,7 +220,7 @@ def _speech_item(
         required_settings=required_settings,
         configured_settings=configured_settings,
         missing_settings=[] if configured else required_settings,
-        setup_url="/settings/channels#openai",
+        setup_url="/settings/channels#speech",
         docs_url="/docs#speech",
         blocking=False,
     )
@@ -294,6 +313,91 @@ def _tenant_or_env_item(
         missing_settings=missing_settings,
         setup_url=setup_url,
         docs_url=docs_url,
+        blocking=False,
+    )
+
+
+def _qdrant_item(settings: Settings) -> IntegrationReadinessItem:
+    url = settings.effective_qdrant_url
+    is_memory = url == ":memory:"
+    configured = bool(url) and not is_memory
+    if is_memory:
+        status = IntegrationReadinessStatus.local_stub
+        summary = "Qdrant is using in-memory mode. Data will be lost on restart."
+    elif configured:
+        status = IntegrationReadinessStatus.configured
+        summary = f"Qdrant is configured at {url}."
+    else:
+        status = IntegrationReadinessStatus.needs_setup
+        summary = "QDRANT_URL is not set. Required for production."
+    return IntegrationReadinessItem(
+        key="qdrant",
+        label="Qdrant Vector DB",
+        category="Infrastructure",
+        status=status,
+        summary=summary,
+        required_settings=["QDRANT_URL"],
+        configured_settings=["QDRANT_URL"] if configured else [],
+        missing_settings=[] if configured else ["QDRANT_URL"],
+        setup_url="/settings/infrastructure#qdrant",
+        docs_url="/docs#qdrant",
+        blocking=False,
+    )
+
+
+def _redis_item(settings: Settings) -> IntegrationReadinessItem:
+    url = settings.redis_url
+    configured = bool(url) and url != "redis://localhost:6379/0"
+    is_default_local = url == "redis://localhost:6379/0"
+    if configured:
+        status = IntegrationReadinessStatus.configured
+        summary = "Redis is configured."
+    elif is_default_local:
+        status = IntegrationReadinessStatus.local_stub
+        summary = "Redis is using default localhost. Update REDIS_URL for production."
+    else:
+        status = IntegrationReadinessStatus.needs_setup
+        summary = "REDIS_URL is not set."
+    return IntegrationReadinessItem(
+        key="redis",
+        label="Redis",
+        category="Infrastructure",
+        status=status,
+        summary=summary,
+        required_settings=["REDIS_URL"],
+        configured_settings=["REDIS_URL"] if configured else [],
+        missing_settings=[] if configured else ["REDIS_URL"],
+        setup_url="/settings/infrastructure#redis",
+        docs_url="/docs#redis",
+        blocking=False,
+    )
+
+
+def _smtp_item(settings: Settings) -> IntegrationReadinessItem:
+    configured = bool(settings.smtp_host and settings.smtp_user)
+    return IntegrationReadinessItem(
+        key="smtp",
+        label="SMTP Email",
+        category="Infrastructure",
+        status=(
+            IntegrationReadinessStatus.configured
+            if configured
+            else IntegrationReadinessStatus.local_stub
+        ),
+        summary=(
+            "SMTP email is configured."
+            if configured
+            else "SMTP is not configured. Email verification and password reset will not work."
+        ),
+        required_settings=["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"],
+        configured_settings=(
+            ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"] if configured else []
+        ),
+        missing_settings=(
+            [] if configured else ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"]
+        ),
+        setup_url="/settings/infrastructure#smtp",
+        docs_url="/docs#smtp",
         blocking=False,
     )
 

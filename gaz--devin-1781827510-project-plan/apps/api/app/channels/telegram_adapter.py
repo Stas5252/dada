@@ -169,6 +169,33 @@ class TelegramChannelAdapter:
             logger.error("Telegram setWebhook error: %s", e)
             return False
 
-    def is_duplicate_update(self, update_id: str) -> bool:
+    @property
+    def channel_type(self) -> ChannelType:
+        return ChannelType.telegram
+
+    def parse_update(self, payload: dict[str, object]) -> MessageEvent | None:
+        return parse_telegram_update(payload)
+
+    async def verify_request(self, request: httpx.Request | getattr(__import__('fastapi'), 'Request'), agent, settings) -> getattr(__import__('fastapi'), 'Response') | None:
+        from fastapi import HTTPException
+        from app.encryption import decrypt_token
+        
+        decrypted_token = decrypt_token(agent.telegram_bot_token, settings.access_token_secret)
+        if not decrypted_token:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"status": "error", "message": "Failed to decrypt Telegram bot token"}, status_code=400)
+            
+        secret_token_header = request.headers.get("x-telegram-bot-api-secret-token")
+        import hashlib
+        expected_secret = hashlib.sha256(decrypted_token.encode("utf-8")).hexdigest()
+        if secret_token_header != expected_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret token")
+            
+        return None
+
+    def is_duplicate_update(self, payload: dict[str, object]) -> bool:
         """Check if we've already processed this Telegram update."""
+        update_id = str(payload.get("update_id", ""))
+        if not update_id:
+            return False
         return self.dedup.is_duplicate(f"tg-update:{update_id}")

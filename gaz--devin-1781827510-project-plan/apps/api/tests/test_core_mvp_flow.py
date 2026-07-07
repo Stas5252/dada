@@ -133,6 +133,13 @@ def test_core_mvp_chat_flow() -> None:
         },
     )
     assert source_response.status_code == 201
+    source_id = source_response.json()["id"]
+
+    ingest_response = client.post(
+        f"/api/v1/knowledge/sources/{source_id}/ingest",
+        headers=headers,
+    )
+    assert ingest_response.status_code == 202
 
     chat_response = client.post(
         "/api/v1/chat/mock",
@@ -145,6 +152,7 @@ def test_core_mvp_chat_flow() -> None:
     )
     assert chat_response.status_code == 201
     chat_payload = chat_response.json()
+    print("CORE MVP CHAT PAYLOAD:", chat_payload)
     assert chat_payload["conversation"]["resolution_status"] == "resolved"
     assert chat_payload["agent_message"]["source_ids"]
     assert "Delivery FAQ" in chat_payload["agent_message"]["content"]

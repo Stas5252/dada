@@ -109,6 +109,85 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "Use confirm_order only after the customer explicitly confirms the order contents and total.",
         ),
     ),
+    "capture_lead": ToolDefinition(
+        name="capture_lead",
+        category="crm",
+        description=(
+            "Create or update a lead in the CRM with the customer's contact info, "
+            "interest, source, and UTM parameters."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Customer name"},
+                "phone": {"type": "string", "description": "Customer phone number"},
+                "email": {"type": "string", "description": "Customer email"},
+                "source": {"type": "string", "description": "Lead source (e.g. telegram, voice, web)"},
+                "notes": {"type": "string", "description": "Additional notes about the lead's interest"},
+            },
+            "required": ["name"],
+        },
+        prompt_rules=(
+            "Use capture_lead when the customer shows buying intent or requests a callback/demo. "
+            "Collect at least name and phone or email before calling.",
+        ),
+    ),
+    "create_crm_deal": ToolDefinition(
+        name="create_crm_deal",
+        category="crm",
+        description="Create a deal in the CRM pipeline linked to the current lead.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Deal title"},
+                "amount": {"type": "integer", "description": "Deal amount in minor units (kopeks/cents)"},
+                "currency": {"type": "string", "description": "Currency code (e.g. RUB)", "default": "RUB"},
+            },
+            "required": ["title"],
+        },
+        prompt_rules=(
+            "Use create_crm_deal after qualifying a lead and confirming their intent to purchase. "
+            "Set a descriptive title including the product/service.",
+        ),
+    ),
+    "book_appointment": ToolDefinition(
+        name="book_appointment",
+        category="scheduling",
+        description="Book an appointment or reservation for the customer.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "service": {"type": "string", "description": "Service or appointment type"},
+                "date": {"type": "string", "description": "Preferred date (YYYY-MM-DD)"},
+                "time": {"type": "string", "description": "Preferred time (HH:MM)"},
+                "customer_name": {"type": "string", "description": "Customer name"},
+                "customer_phone": {"type": "string", "description": "Customer phone number"},
+                "notes": {"type": "string", "description": "Additional notes"},
+            },
+            "required": ["service", "date", "time", "customer_name", "customer_phone"],
+        },
+        prompt_rules=(
+            "Before booking, confirm date, time, service, and customer contact details. "
+            "Suggest alternative times if the requested slot is unavailable.",
+        ),
+    ),
+    "create_task": ToolDefinition(
+        name="create_task",
+        category="crm",
+        description="Create a follow-up task in the CRM.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Task title"},
+                "due_date": {"type": "string", "description": "Due date (YYYY-MM-DD)"},
+                "notes": {"type": "string", "description": "Task description"},
+            },
+            "required": ["title"],
+        },
+        prompt_rules=(
+            "Use create_task for follow-up actions that need to be tracked.",
+        ),
+    ),
 }
 
 REGISTERED_TOOL_NAMES: frozenset[str] = frozenset(TOOL_REGISTRY)

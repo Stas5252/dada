@@ -134,16 +134,17 @@ async def widget_chat(
 
     check_billing_limit(tenant_uuid, app_store)
 
-    # Process message via Orchestrator
-    orchestrator = AgentOrchestrator(store=app_store, settings=settings)
+    from app.service_factory import get_agent_orchestrator
+    orchestrator = get_agent_orchestrator()
 
     orchestrator_result = await orchestrator.process_message(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
-        customer_message=event.text,
-        channel="web_widget",
+        customer_message=payload.message,
+        channel="widget",
     )
+
     response_text = orchestrator_result.response_text
     forced_status = orchestrator_result.forced_status
     forced_resolution_status = orchestrator_result.forced_resolution_status
@@ -163,31 +164,29 @@ async def widget_chat(
         forced_status = auto_reply_decision.forced_status
         forced_resolution_status = auto_reply_decision.forced_resolution_status
 
-    recorded = app_store.record_chat_turn(
+    app_store.record_chat_turn_background(
         tenant_id=tenant_uuid,
         agent_id=agent_uuid,
         conversation_id=conversation_uuid,
-        channel="web_widget",
-        customer_text=event.text,
+        channel="widget",
+        customer_text=payload.message,
         agent_response_text=response_text,
         customer_id=customer.id,
         confidence_score=orchestrator_result.confidence_score,
         forced_status=forced_status,
         forced_resolution_status=forced_resolution_status,
     )
-    if not recorded:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     if orchestrator_result.guardrail_code == "opt_out_requested":
         app_store.record_contact_suppression(
             tenant_uuid,
             "web_widget",
             "external_id",
-            event.external_chat_id,
+            payload.session_id,
             reason="opt_out_requested",
             source="widget_guardrail",
         )
-        if customer.phone:
+        if customer and customer.phone:
             try:
                 app_store.record_contact_suppression(
                     tenant_uuid,
@@ -197,16 +196,9 @@ async def widget_chat(
                     reason="opt_out_requested",
                     source="widget_guardrail",
                 )
-            except ValueError:
-                app_store.create_audit_log(
-                    event_type="contact_suppression.phone_skipped",
-                    tenant_id=tenant_uuid,
-                    details={
-                        "channel": "web_widget",
-                        "reason": "invalid_phone",
-                        "source": "widget_guardrail",
-                    },
-                )
+            except Exception as e:
+                import logging
+                logging.warning("Failed to record phone suppression for widget customer: %s", e)
 
     if not auto_reply_decision.allowed:
         audit_channel_policy_auto_reply_block(

@@ -101,10 +101,16 @@ class AgentOrchestrator:
                     )
                 return self._guardrail_result(inbound_decision)
 
-            # Memory Summarization trigger for long conversations (exceeding 10 messages)
+            # Check human handoff assignment before proceeding
             detail = self.store.get_conversation_detail(tenant_id, conversation_id)
             if detail:
-                _, messages_list, _ = detail
+                conv_obj, messages_list, _ = detail
+                if getattr(conv_obj, "handoff_status", "ai_handling") != "ai_handling":
+                    logger.info("Conversation %s is assigned to human (%s), AI will not process.", conversation_id, conv_obj.handoff_status)
+                    # We return an empty response so the AI doesn't reply.
+                    return OrchestratorResult("", None, [])
+
+                # Memory Summarization trigger for long conversations (exceeding 10 messages)
                 if len(messages_list) > 10:
                     older_messages = sorted(messages_list, key=lambda m: m.created_at)[:-6]
                     if older_messages:
@@ -306,7 +312,12 @@ class AgentOrchestrator:
                             agent_name=agent.name,
                             customer_text=customer_message,
                         )
-                        return OrchestratorResult(exec_result["message"], top_confidence, retrieval_results)
+                        return OrchestratorResult(
+                            exec_result["message"],
+                            top_confidence,
+                            retrieval_results,
+                            forced_resolution_status="needs_human"
+                        )
                     else:
                         # Feed system result back to LLM to continue turn
                         messages.append({"role": "assistant", "content": f"[System]: {exec_result['message']}"})

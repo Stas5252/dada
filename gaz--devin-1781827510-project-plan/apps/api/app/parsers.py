@@ -28,34 +28,62 @@ def parse_docx(file_bytes: bytes) -> str:
 
 
 def parse_url(url: str) -> str:
-    """Extract visible text from a webpage URL with exponential backoff retries."""
+    """Extract visible text from a webpage URL with exponential backoff retries, SSRF protection, and size limits."""
     import ipaddress
     import socket
     import urllib.parse
+    import httpx
 
-    parsed_url = urllib.parse.urlparse(url)
-    if parsed_url.scheme not in ("http", "https"):
-        raise ValueError("Invalid URL scheme")
-    if parsed_url.hostname is None:
-        raise ValueError("URL hostname is required")
-
-    try:
-        ip = socket.gethostbyname(parsed_url.hostname)
-        ip_obj = ipaddress.ip_address(ip)
-        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
-            raise ValueError("Access to private IP addresses is forbidden")
-    except Exception as e:
-        raise ValueError(f"URL validation failed: {str(e)}") from e
+    def validate_url(check_url: str) -> None:
+        parsed = urllib.parse.urlparse(check_url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Invalid URL scheme")
+        if parsed.hostname is None:
+            raise ValueError("URL hostname is required")
+        try:
+            ip = socket.gethostbyname(parsed.hostname)
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+                raise ValueError("Access to private IP addresses is forbidden")
+        except Exception as e:
+            raise ValueError(f"URL validation failed: {str(e)}") from e
 
     max_retries = 3
     backoff = 1.0
     last_exc: Exception | None = None
+    max_size = 5 * 1024 * 1024  # 5 MB
 
     for attempt in range(max_retries + 1):
         try:
-            response = httpx.get(url, timeout=10.0, follow_redirects=True)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
+            current_url = url
+            redirects = 0
+            response = None
+            
+            with httpx.Client(timeout=10.0, follow_redirects=False) as client:
+                while redirects < 5:
+                    validate_url(current_url)
+                    response = client.get(current_url)
+                    if response.is_redirect:
+                        current_url = str(response.next_request.url)
+                        redirects += 1
+                        continue
+                    break
+                
+                if response is None or response.is_redirect:
+                    raise ValueError("Too many redirects")
+                
+                response.raise_for_status()
+                
+                # Check Content-Length if present
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > max_size:
+                    raise ValueError("File is too large")
+
+                content = response.content
+                if len(content) > max_size:
+                    raise ValueError("File is too large")
+
+            soup = BeautifulSoup(content.decode("utf-8", errors="replace"), "html.parser")
 
             # Remove script and style elements
             for script in soup(["script", "style"]):

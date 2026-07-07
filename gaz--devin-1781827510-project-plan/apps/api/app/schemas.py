@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, field_serializer
 
 from app.rbac import Role
 from app.tool_registry import DEFAULT_ENABLED_TOOLS, normalize_enabled_tools
@@ -37,6 +37,25 @@ class ConversationStatus(StrEnum):
     open = "open"
     resolved = "resolved"
     escalated = "escalated"
+
+
+class CrmLeadStatus(StrEnum):
+    new = "new"
+    qualified = "qualified"
+    converted = "converted"
+    lost = "lost"
+
+
+class CrmDealStatus(StrEnum):
+    open = "open"
+    won = "won"
+    lost = "lost"
+
+
+class CrmTaskStatus(StrEnum):
+    open = "open"
+    done = "done"
+    canceled = "canceled"
 
 
 class MessageRole(StrEnum):
@@ -235,6 +254,16 @@ class Tenant(TimestampedModel):
     status: TenantStatus = TenantStatus.active
     settings: dict[str, object] = Field(default_factory=dict)
 
+    @field_serializer("settings")
+    def mask_settings_secrets(self, settings: dict[str, object]) -> dict[str, object]:
+        if not settings:
+            return settings
+        masked = dict(settings)
+        for key in ["vk_group_token", "vk_confirmation_code"]:
+            if masked.get(key):
+                masked[key] = "***"
+        return masked
+
 
 class User(TimestampedModel):
     id: UUID = Field(default_factory=uuid4)
@@ -294,6 +323,12 @@ class Agent(TimestampedModel):
     telegram_bot_token: str | None = None
     pathway_nodes: list[dict[str, object]] | None = None
     pathway_edges: list[dict[str, object]] | None = None
+
+    @field_serializer("telegram_bot_token")
+    def mask_telegram_token(self, token: str | None) -> str | None:
+        if not token:
+            return token
+        return "***"
     business_profile: str = ""
     agent_role: str = "customer_support"
     agent_tone: str = "professional"
@@ -386,6 +421,25 @@ class RagEvalResponse(BaseModel):
     results: list[RagEvalCaseResult]
 
 
+class QAEvaluation(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    conversation_id: UUID
+    score: int = Field(ge=0, le=10)
+    flags: list[str] = Field(default_factory=list)
+    feedback: str = ""
+
+
+class WeeklyReport(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    start_date: datetime
+    end_date: datetime
+    summary: str
+    insights: str
+    top_channels: list[str] = Field(default_factory=list)
+
+
 class Message(TimestampedModel):
     id: UUID = Field(default_factory=uuid4)
     tenant_id: UUID
@@ -460,6 +514,170 @@ class CustomerUpdate(BaseModel):
     tags: list[str] | None = None
 
 
+class CrmSource(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    name: str
+    channel: str = "manual"
+    external_id: str | None = None
+
+
+class CrmSourceCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    channel: str = Field(default="manual", min_length=1, max_length=40)
+    external_id: str | None = Field(default=None, max_length=160)
+
+
+class CrmCompany(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    name: str
+    website: str | None = None
+    phone: str | None = None
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+
+
+class CrmCompanyCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    website: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=40)
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+
+
+class CrmPipeline(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    name: str
+    is_default: bool = False
+
+
+class CrmPipelineCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    is_default: bool = False
+
+
+class CrmStage(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    pipeline_id: UUID
+    name: str
+    position: int = 0
+    probability: int = 0
+
+
+class CrmStageCreateRequest(BaseModel):
+    pipeline_id: UUID
+    name: str = Field(min_length=1, max_length=120)
+    position: int = Field(default=0, ge=0, le=1000)
+    probability: int = Field(default=0, ge=0, le=100)
+
+
+class CrmLead(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    company_id: UUID | None = None
+    customer_id: UUID | None = None
+    conversation_id: UUID | None = None
+    name: str
+    phone: str | None = None
+    email: str | None = None
+    source: str = "manual"
+    status: CrmLeadStatus = CrmLeadStatus.new
+    score: int = 0
+    tags: list[str] = Field(default_factory=list)
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+
+
+class CrmLeadCreateRequest(BaseModel):
+    company_id: UUID | None = None
+    customer_id: UUID | None = None
+    conversation_id: UUID | None = None
+    name: str = Field(min_length=1, max_length=160)
+    phone: str | None = Field(default=None, max_length=40)
+    email: EmailStr | None = None
+    source: str = Field(default="manual", min_length=1, max_length=120)
+    status: CrmLeadStatus = CrmLeadStatus.new
+    score: int = Field(default=0, ge=0, le=100)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _normalize_tags(cls, value: object) -> list[str]:
+        return _coerce_string_list(value)
+
+
+class CrmDeal(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    lead_id: UUID | None = None
+    company_id: UUID | None = None
+    pipeline_id: UUID | None = None
+    stage_id: UUID | None = None
+    title: str
+    amount_minor: int = 0
+    currency: str = "RUB"
+    status: CrmDealStatus = CrmDealStatus.open
+    source: str = "manual"
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+    expected_close_at: datetime | None = None
+
+
+class CrmDealCreateRequest(BaseModel):
+    lead_id: UUID | None = None
+    company_id: UUID | None = None
+    pipeline_id: UUID | None = None
+    stage_id: UUID | None = None
+    title: str = Field(min_length=1, max_length=200)
+    amount_minor: int = Field(default=0, ge=0)
+    currency: str = Field(default="RUB", min_length=3, max_length=3)
+    status: CrmDealStatus = CrmDealStatus.open
+    source: str = Field(default="manual", min_length=1, max_length=120)
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+    expected_close_at: datetime | None = None
+    lead_name: str | None = Field(default=None, max_length=160)
+    lead_phone: str | None = Field(default=None, max_length=40)
+    lead_email: EmailStr | None = None
+
+
+class CrmTask(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    lead_id: UUID | None = None
+    deal_id: UUID | None = None
+    title: str
+    status: CrmTaskStatus = CrmTaskStatus.open
+    due_at: datetime | None = None
+    assignee_user_id: UUID | None = None
+
+
+class CrmTaskCreateRequest(BaseModel):
+    lead_id: UUID | None = None
+    deal_id: UUID | None = None
+    title: str = Field(min_length=1, max_length=200)
+    status: CrmTaskStatus = CrmTaskStatus.open
+    due_at: datetime | None = None
+    assignee_user_id: UUID | None = None
+
+
+class CrmNote(TimestampedModel):
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    lead_id: UUID | None = None
+    deal_id: UUID | None = None
+    conversation_id: UUID | None = None
+    body: str
+    author_user_id: UUID | None = None
+
+
+class CrmNoteCreateRequest(BaseModel):
+    lead_id: UUID | None = None
+    deal_id: UUID | None = None
+    conversation_id: UUID | None = None
+    body: str = Field(min_length=1, max_length=4000)
+    author_user_id: UUID | None = None
+
+
 class ConversationCreateRequest(BaseModel):
     customer_id: UUID | None = None
     initial_message: str | None = None
@@ -501,6 +719,10 @@ class Conversation(TimestampedModel):
     status: ConversationStatus = ConversationStatus.open
     summary: str = ""
     resolution_status: str = "unresolved"
+    priority: str = "normal"
+    sla_due_at: datetime | None = None
+    handoff_status: str = "ai_handling"
+    assigned_user_id: UUID | None = None
 
 
 class RegisterRequest(BaseModel):

@@ -67,6 +67,19 @@ services:
     depends_on:
       - api
 
+  worker:
+    build:
+      context: ../apps/api
+    env_file:
+      - ../.env.example
+    command: ["uv", "run", "arq", "app.worker.WorkerSettings"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+
 volumes:
   postgres-data:
   qdrant-data:

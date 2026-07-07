@@ -60,26 +60,91 @@ class SpeechService:
 
 
 class StreamingSTT:
-    """Abstract interface for streaming Speech-to-Text (e.g. Faster-Whisper)."""
-    async def process_audio_stream(self, audio_chunk: bytes) -> tuple[bool, str]:
-        """
-        Processes an audio chunk.
-        Returns (is_final, text). If is_final is True, the text is a completed utterance.
-        """
+    """Abstract interface for streaming Speech-to-Text."""
+    async def connect(self) -> None:
+        pass
+        
+    async def disconnect(self) -> None:
+        pass
+        
+    async def send_audio(self, audio_chunk: bytes) -> None:
         raise NotImplementedError
+        
+    async def receive_transcript(self) -> tuple[bool, str]:
+        """Returns (is_final, text)"""
+        raise NotImplementedError
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.disconnect()
 
 
 class MockStreamingSTT(StreamingSTT):
     """A mock implementation for local MVP testing."""
     def __init__(self) -> None:
         self.buffer = bytearray()
+        import asyncio
+        self.queue = asyncio.Queue()
         
-    async def process_audio_stream(self, audio_chunk: bytes) -> tuple[bool, str]:
+    async def send_audio(self, audio_chunk: bytes) -> None:
         self.buffer.extend(audio_chunk)
-        if len(self.buffer) > 32000:
+        if len(self.buffer) > 16000:
+            await self.queue.put((True, "Привет, я хочу заказать пиццу"))
             self.buffer.clear()
-            return True, "Привет, я хочу заказать пиццу"
-        return False, ""
+            
+    async def receive_transcript(self) -> tuple[bool, str]:
+        return await self.queue.get()
+
+
+class DeepgramStreamingSTT(StreamingSTT):
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        import websockets
+        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._url = "wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000&channels=1&language=ru&interim_results=true&endpointing=300"
+        import asyncio
+        self._queue = asyncio.Queue()
+        self._receive_task: asyncio.Task | None = None
+
+    async def connect(self) -> None:
+        import websockets
+        import asyncio
+        import logging
+        self._ws = await websockets.connect(
+            self._url,
+            extra_headers={"Authorization": f"Token {self.api_key}"}
+        )
+        
+        async def receiver():
+            import json
+            try:
+                async for message in self._ws:
+                    data = json.loads(message)
+                    if data.get("type") == "Results":
+                        is_final = data["is_final"]
+                        transcript = data["channel"]["alternatives"][0]["transcript"]
+                        if transcript:
+                            await self._queue.put((is_final, transcript))
+            except Exception as e:
+                logging.getLogger(__name__).warning("Deepgram socket closed: %s", e)
+                
+        self._receive_task = asyncio.create_task(receiver())
+
+    async def disconnect(self) -> None:
+        if self._receive_task:
+            self._receive_task.cancel()
+        if self._ws:
+            await self._ws.close()
+
+    async def send_audio(self, audio_chunk: bytes) -> None:
+        if self._ws:
+            await self._ws.send(audio_chunk)
+
+    async def receive_transcript(self) -> tuple[bool, str]:
+        return await self._queue.get()
 
 
 def add_wav_header_mulaw(audio_bytes: bytes, sample_rate: int = 8000) -> bytes:
@@ -210,19 +275,110 @@ class OpenAIStreamingTTS(StreamingTTS):
             yield b""
 
 
+
+class YandexStreamingSTT(StreamingSTT):
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.buffer = bytearray()
+        import asyncio
+        self.queue = asyncio.Queue()
+        self.url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?lang=ru-RU&format=lpcm&sampleRateHertz=8000"
+        
+    async def send_audio(self, audio_chunk: bytes) -> None:
+        self.buffer.extend(audio_chunk)
+        if len(self.buffer) > 24000:
+            import httpx
+            import audioop
+            pcm_8k, _ = audioop.ulaw2lin(bytes(self.buffer), 2)
+            self.buffer.clear()
+            
+            async with httpx.AsyncClient() as client:
+                try:
+                    resp = await client.post(
+                        self.url,
+                        headers={"Authorization": f"Api-Key {self.api_key}"},
+                        content=pcm_8k
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    text = data.get("result", "")
+                    if text:
+                        await self.queue.put((True, text))
+                except Exception as e:
+                    print(f"Yandex STT Error: {e}")
+
+    async def receive_transcript(self) -> tuple[bool, str]:
+        return await self.queue.get()
+
+
+class YandexStreamingTTS(StreamingTTS):
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+        
+    async def generate_audio_stream(self, text: str, voice: str = "alena", response_format: str = "wav") -> AsyncGenerator[bytes, None]:
+        import httpx
+        import audioop
+        
+        data = {
+            "text": text,
+            "lang": "ru-RU",
+            "voice": voice,
+            "format": "lpcm",
+            "sampleRateHertz": "8000"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    self.url,
+                    headers={"Authorization": f"Api-Key {self.api_key}"},
+                    data=data
+                ) as response:
+                    response.raise_for_status()
+                    
+                    leftover = b""
+                    async for chunk in response.aiter_bytes(chunk_size=4096):
+                        data_to_process = leftover + chunk
+                        length = len(data_to_process)
+                        process_len = (length // 2) * 2
+                        if process_len > 0:
+                            chunk_to_convert = data_to_process[:process_len]
+                            leftover = data_to_process[process_len:]
+                            
+                            mulaw_chunk = audioop.lin2ulaw(chunk_to_convert, 2)
+                            yield mulaw_chunk
+                        else:
+                            leftover = data_to_process
+                            
+                    if leftover:
+                        pad_len = 2 - len(leftover)
+                        padded_leftover = leftover + (b"\x00" * pad_len)
+                        mulaw_chunk = audioop.lin2ulaw(padded_leftover, 2)
+                        yield mulaw_chunk
+            except Exception as e:
+                print(f"Yandex TTS Error: {e}")
+                yield b""
+
 def get_speech_service() -> SpeechService:
     return SpeechService()
 
 
 def get_streaming_stt() -> StreamingSTT:
     settings = get_settings()
-    if settings.openai_api_key:
-        return OpenAIStreamingSTT()
+    if settings.yandex_api_key:
+        return YandexStreamingSTT(settings.yandex_api_key)
+    if settings.deepgram_api_key:
+        return DeepgramStreamingSTT(settings.deepgram_api_key)
+    # Fallback to mock
     return MockStreamingSTT()
 
 
 def get_streaming_tts() -> StreamingTTS:
     settings = get_settings()
+    if settings.yandex_api_key:
+        return YandexStreamingTTS(settings.yandex_api_key)
     if settings.openai_api_key:
         return OpenAIStreamingTTS()
     return MockStreamingTTS()

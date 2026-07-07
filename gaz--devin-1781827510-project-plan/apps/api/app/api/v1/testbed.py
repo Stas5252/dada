@@ -92,7 +92,8 @@ def run_test_case(
     settings = get_settings()
 
     async def execute_test() -> None:
-        orchestrator = AgentOrchestrator(store, settings)
+        from app.service_factory import get_agent_orchestrator
+        orchestrator = get_agent_orchestrator()
         
         user_simulation_prompt = (
             f"You are a user in a simulated test. Follow this scenario: {test_case.scenario}. "
@@ -185,7 +186,8 @@ Reply ONLY with "PASSED" or "FAILED" on the first line, followed by a brief summ
     def run_sync() -> None:
         asyncio.run(execute_test())
         
-    store.background_jobs.submit(test_run.id, run_sync)
+    # We pass the store instance locally for Inline mode, but Arq worker will get its own store.
+    store.background_jobs.submit("run_testbed_sync", test_run.id, _store=store)
     
     return test_run
 

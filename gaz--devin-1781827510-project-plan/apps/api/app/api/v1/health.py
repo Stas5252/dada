@@ -73,8 +73,8 @@ async def readiness(settings: Settings = Depends(get_settings)) -> ReadinessResp
         ),
         _provider_readiness(
             provider="speech_stt_tts",
-            configured=bool(settings.openai_api_key),
-            detail="OPENAI_API_KEY for OpenAI Whisper/TTS or a future local speech adapter",
+            configured=bool(settings.openai_api_key or settings.yandex_api_key or settings.deepgram_api_key),
+            detail="YANDEX_API_KEY, DEEPGRAM_API_KEY or OPENAI_API_KEY",
         ),
         _provider_readiness(
             provider="asterisk_ari",

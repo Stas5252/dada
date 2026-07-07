@@ -75,6 +75,12 @@ async def trigger_outbound_call(
 
     api_url = _setting_value(tenant_settings, "api_public_url", settings.api_public_url).rstrip("/")
     webhook_url = f"{api_url}/api/v1/voice/webhooks/twilio/voice/{agent_id}?tenant_id={tenant_id}"
+    
+    lead_id = tenant_settings.get("lead_id")
+    status_callback_url = None
+    if lead_id:
+        webhook_url += f"&lead_id={lead_id}"
+        status_callback_url = f"{api_url}/api/v1/campaigns/webhooks/twilio/status?tenant_id={tenant_id}&lead_id={lead_id}"
 
     if not account_sid or not auth_token or not from_number:
         # Simulation Mode
@@ -104,6 +110,7 @@ async def trigger_outbound_call(
                 "to_number": to_number,
                 "from_number": from_number or "+15005550006 (mock)",
                 "webhook_url": webhook_url,
+                "status_callback_url": status_callback_url,
                 "status": "queued",
             }
         )
@@ -120,11 +127,18 @@ async def trigger_outbound_call(
         from twilio.rest import Client
 
         client = Client(account_sid, auth_token)
+        call_kwargs = {
+            "to": to_number,
+            "from_": from_number,
+            "url": webhook_url,
+        }
+        if status_callback_url:
+            call_kwargs["status_callback"] = status_callback_url
+            call_kwargs["status_callback_event"] = ["completed", "answered", "busy", "no-answer", "canceled", "failed"]
+
         call = await asyncio.to_thread(
             client.calls.create,
-            to=to_number,
-            from_=from_number,
-            url=webhook_url,
+            **call_kwargs
         )
         return str(call.sid)
     except ImportError:

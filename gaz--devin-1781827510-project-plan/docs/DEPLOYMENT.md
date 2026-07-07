@@ -1,90 +1,72 @@
-# Deployment
+# DEPLOYMENT.md — Развёртывание CallForce
 
-## Local development
-
-Requirements:
+## Требования
 
 - Python 3.12+
-- Node.js 22+
-- npm 10+
-- Docker 27+ for full infrastructure
-- uv for Python dependency sync
+- Node.js 18+ (для frontend)
+- PostgreSQL 15+
+- Redis 7+
+- Qdrant 1.7+
 
-Minimal app-only local run:
+## Локальная разработка
 
-```powershell
+```bash
+# 1. Backend
 cd apps/api
-.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
+cp ../../.env.example .env
+uv sync
+uv run alembic upgrade head
+uv run uvicorn app.main:create_app --factory --reload --port 8000
 
-```powershell
+# 2. Frontend
 cd apps/web
-set "NEXT_PUBLIC_API_URL=http://127.0.0.1:8000" && npm run dev -- --hostname 127.0.0.1 --port 3000
+npm install
+npm run dev
+
+# 3. Worker (фоновые задачи)
+cd apps/api
+uv run python -m app.worker
 ```
 
-Full local infrastructure:
+## Docker Compose (рекомендуется)
 
 ```bash
-cp .env.example .env
-make infra-up
-make migrate
-make seed-demo
-make api-dev
-make web-dev
+docker compose up -d
 ```
 
-## Production compose
+Контейнеры: `api`, `web`, `worker`, `postgres`, `redis`, `qdrant`.
 
-Production compose file:
+## Переменные окружения
+
+См. `.env.example` для полного списка. Критические для production:
+
+| Переменная | Описание | Обязательна? |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string | ✅ Да |
+| `ACCESS_TOKEN_SECRET` | Секрет для JWT | ✅ Да |
+| `OPENAI_API_KEY` | Ключ OpenAI | ⚠️ Для LLM |
+| `YANDEX_API_KEY` | Ключ Yandex SpeechKit | ⚠️ Для STT/TTS |
+| `QDRANT_URL` | URL Qdrant | ✅ Для prod |
+| `REDIS_URL` | URL Redis | ✅ Для очередей |
+| `YOOKASSA_SHOP_ID` | ID магазина YooKassa | ⚠️ Для платежей |
+| `TWILIO_ACCOUNT_SID` | SID Twilio | ⚠️ Для телефонии |
+| `TELEGRAM_BOT_TOKEN` | Токен Telegram бота | ⚠️ Для Telegram |
+| `APP_ENV` | `local` / `staging` / `production` | ✅ Да |
+
+## Проверка готовности
 
 ```bash
-infra/docker-compose.yml
+# Health check
+curl http://localhost:8000/api/v1/system/health
+
+# Readiness matrix (все провайдеры)
+curl http://localhost:8000/api/v1/system/readiness
 ```
 
-It includes:
+## Масштабирование
 
-- Traefik with HTTPS.
-- PostgreSQL.
-- Redis.
-- Qdrant.
-- API.
-- Web.
-- Prometheus.
-- Alertmanager.
-- Grafana.
-- PostgreSQL backup container.
-
-Production checklist:
-
-1. Create `.env` from `.env.example`.
-2. Replace all local/default secrets.
-3. Set `APP_ENV=production`.
-4. Set domains: `APP_DOMAIN`, `API_DOMAIN`, `GRAFANA_DOMAIN`.
-5. Set `ACME_EMAIL`.
-6. Set provider credentials only through secure env/secrets.
-7. Run `docker compose -f infra/docker-compose.yml config`.
-8. Run `docker compose -f infra/docker-compose.yml up -d --build`.
-9. Verify `/api/v1/health` and `/api/v1/readiness`.
-10. Run smoke checks.
-
-## Release gates
-
-Before deploy:
-
-- backend lint/type/tests pass;
-- frontend lint/type/build pass;
-- security scans pass;
-- migrations are reviewed;
-- backup restore procedure is known;
-- external credentials are configured;
-- `ALLOW_LEGACY_TENANT_HEADER=false` in staging/production;
-- `SEED_DEMO_DATA=false` in production.
-
-After deploy:
-
-- health/readiness pass;
-- login/register smoke passes;
-- at least one agent testbed run passes;
-- one channel webhook smoke passes;
-- one billing sandbox smoke passes before enabling real billing;
-- alerts are firing to the correct destination.
+- API: горизонтально через load balancer
+- Worker: несколько инстансов Arq
+- PostgreSQL: read replicas
+- Qdrant: кластерный режим
+- Redis: Sentinel / Redis Cluster

@@ -105,6 +105,67 @@ class ActionEngineExecutor:
                 destructive=True,
                 requires_confirmation=True,
             ),
+            "capture_lead": ToolContract(
+                name="capture_lead",
+                version="1.0",
+                input_schema={
+                    "name": "string",
+                    "phone": "string",
+                    "email": "string",
+                    "source": "string",
+                    "notes": "string",
+                },
+                output_schema={},
+                permissions=frozenset({ToolPermission.MANAGE_CRM}),
+                timeout_ms=5_000,
+                destructive=False,
+                requires_confirmation=False,
+            ),
+            "create_crm_deal": ToolContract(
+                name="create_crm_deal",
+                version="1.0",
+                input_schema={
+                    "title": "string",
+                    "amount": "integer",
+                    "currency": "string",
+                },
+                output_schema={},
+                permissions=frozenset({ToolPermission.MANAGE_CRM}),
+                timeout_ms=5_000,
+                destructive=False,
+                requires_confirmation=False,
+            ),
+            "book_appointment": ToolContract(
+                name="book_appointment",
+                version="1.0",
+                input_schema={
+                    "service": "string",
+                    "date": "string",
+                    "time": "string",
+                    "customer_name": "string",
+                    "customer_phone": "string",
+                    "notes": "string",
+                },
+                output_schema={},
+                permissions=frozenset({ToolPermission.MANAGE_APPOINTMENTS}),
+                timeout_ms=5_000,
+                destructive=False,
+                requires_confirmation=False,
+            ),
+            "create_task": ToolContract(
+                name="create_task",
+                version="1.0",
+                input_schema={
+                    "title": "string",
+                    "due_date": "string",
+                    "notes": "string",
+                },
+                output_schema={},
+                permissions=frozenset({ToolPermission.MANAGE_CRM}),
+                timeout_ms=5_000,
+                destructive=False,
+                requires_confirmation=False,
+            ),
         }
 
     async def execute_tool(
@@ -221,6 +282,105 @@ class ActionEngineExecutor:
                 "success": True,
                 "message": "Заказ успешно отправлен в ресторан!",
                 "action_performed": "confirm",
+            }
+
+        if tool_name == "capture_lead":
+            name = _payload_str(payload, "name", "Неизвестно")
+            phone = _payload_optional_str(payload, "phone")
+            email = _payload_optional_str(payload, "email")
+            source = _payload_str(payload, "source", "action_engine")
+            
+            from app.api.v1.crm import auto_create_lead
+            lead = auto_create_lead(tenant_id, name, phone, email, source)
+            
+            if lead:
+                return {
+                    "success": True,
+                    "message": "Контактные данные сохранены в CRM.",
+                    "action_performed": "capture_lead",
+                }
+            return {
+                "success": False,
+                "message": "Не удалось создать лид, не хватает данных.",
+            }
+
+        if tool_name == "create_crm_deal":
+            title = _payload_str(payload, "title", "Новая сделка")
+            amount_minor = _payload_int(payload, "amount", 0)
+            
+            from app.api.v1.crm import get_db_session_factory
+            from app.database import session_scope
+            from app.db_models import CrmDealModel
+            from uuid import uuid4
+            
+            factory = get_db_session_factory()
+            with session_scope(factory) as session:
+                deal = CrmDealModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    title=title,
+                    amount_minor=amount_minor,
+                    source="action_engine",
+                )
+                session.add(deal)
+            
+            return {
+                "success": True,
+                "message": f"Сделка '{title}' успешно создана.",
+                "action_performed": "create_deal",
+            }
+
+        if tool_name == "book_appointment":
+            service = _payload_str(payload, "service", "Неизвестная услуга")
+            date = _payload_str(payload, "date")
+            time = _payload_str(payload, "time")
+            customer_name = _payload_str(payload, "customer_name", "Клиент")
+            customer_phone = _payload_str(payload, "customer_phone", "")
+            
+            from app.api.v1.crm import auto_create_lead, get_db_session_factory
+            from app.database import session_scope
+            from app.db_models import CrmTaskModel
+            from uuid import uuid4
+            
+            lead = auto_create_lead(tenant_id, customer_name, customer_phone, None, "appointment")
+            lead_id = lead.id if lead else None
+            
+            factory = get_db_session_factory()
+            with session_scope(factory) as session:
+                task = CrmTaskModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    lead_id=lead_id,
+                    title=f"Запись: {service} на {date} в {time}",
+                )
+                session.add(task)
+                
+            return {
+                "success": True,
+                "message": f"Запись на {service} оформлена на {date} {time}.",
+                "action_performed": "book_appointment",
+            }
+            
+        if tool_name == "create_task":
+            title = _payload_str(payload, "title")
+            from app.api.v1.crm import get_db_session_factory
+            from app.database import session_scope
+            from app.db_models import CrmTaskModel
+            from uuid import uuid4
+            
+            factory = get_db_session_factory()
+            with session_scope(factory) as session:
+                task = CrmTaskModel(
+                    id=str(uuid4()),
+                    tenant_id=str(tenant_id),
+                    title=title,
+                )
+                session.add(task)
+            
+            return {
+                "success": True,
+                "message": f"Задача '{title}' создана.",
+                "action_performed": "create_task",
             }
 
         return {"success": False, "message": "Unknown tool invocation logic"}

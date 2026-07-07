@@ -114,7 +114,8 @@ class AsteriskARIService:
         agent_uuid = UUID(agent_id)
         conversation_uuid = uuid5(NAMESPACE_URL, f"asterisk_ari:{channel_id}")
 
-        orchestrator = AgentOrchestrator(store=self.app_store, settings=self.settings)
+        from app.service_factory import get_agent_orchestrator
+        orchestrator = get_agent_orchestrator()
         stt = get_streaming_stt()
         tts = get_streaming_tts()
         
@@ -140,7 +141,7 @@ class AsteriskARIService:
                     )
                     response_text = orchestrator_result.response_text
                     
-                    self.app_store.record_chat_turn(
+                    self.app_store.record_chat_turn_background(
                         tenant_id=tenant_uuid,
                         agent_id=agent_uuid,
                         conversation_id=conversation_uuid,

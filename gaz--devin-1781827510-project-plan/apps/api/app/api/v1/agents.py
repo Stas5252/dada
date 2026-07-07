@@ -222,3 +222,80 @@ async def save_agent_pathway(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found during update")
 
     return PathwayResponse(nodes=updated_agent.pathway_nodes, edges=updated_agent.pathway_edges)
+
+
+# ---------------------------------------------------------------------------
+# Agent Templates
+# ---------------------------------------------------------------------------
+
+class AgentTemplateResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    category: str
+    agent_role: str
+    agent_tone: str
+    agent_language: str
+    enabled_tools: list[str]
+
+
+@router.get("/templates/list", response_model=list[AgentTemplateResponse])
+async def list_agent_templates() -> list[AgentTemplateResponse]:
+    """List all available agent templates."""
+    from app.agent_templates import list_templates
+
+    return [
+        AgentTemplateResponse(
+            id=t.id,
+            name=t.name,
+            description=t.description,
+            category=t.category,
+            agent_role=t.agent_role,
+            agent_tone=t.agent_tone,
+            agent_language=t.agent_language,
+            enabled_tools=t.enabled_tools,
+        )
+        for t in list_templates()
+    ]
+
+
+@router.get("/templates/{template_id}", response_model=AgentTemplateResponse)
+async def get_agent_template(template_id: str) -> AgentTemplateResponse:
+    """Get a single agent template by ID."""
+    from app.agent_templates import get_template
+
+    template = get_template(template_id)
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Template '{template_id}' not found",
+        )
+    return AgentTemplateResponse(
+        id=template.id,
+        name=template.name,
+        description=template.description,
+        category=template.category,
+        agent_role=template.agent_role,
+        agent_tone=template.agent_tone,
+        agent_language=template.agent_language,
+        enabled_tools=template.enabled_tools,
+    )
+
+
+@router.post("/from-template/{template_id}", response_model=Agent, status_code=201)
+async def create_agent_from_template(
+    template_id: str,
+    tenant_id: str = Depends(MANAGE_AGENTS),
+    app_store: AppStore = Depends(get_app_store),
+) -> Agent:
+    """Create a new agent from a template preset."""
+    from app.agent_templates import get_template
+
+    template = get_template(template_id)
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Template '{template_id}' not found",
+        )
+    payload = AgentCreateRequest(**template.to_create_payload())
+    return app_store.create_agent(UUID(tenant_id), payload)

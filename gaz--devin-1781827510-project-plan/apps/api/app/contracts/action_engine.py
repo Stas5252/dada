@@ -16,6 +16,8 @@ class ToolPermission(StrEnum):
     CANCEL_ORDER = "cancel:order"
     SEND_WEBHOOK = "send:webhook"
     MANAGE_BILLING = "manage:billing"
+    MANAGE_CRM = "manage:crm"
+    MANAGE_APPOINTMENTS = "manage:appointments"
 
 
 class ConfirmationError(ValueError):
